@@ -106,7 +106,7 @@ content Provider：https://www.jianshu.com/p/5e13d1fec9c9
 
 
 
-sharedPrefenrence:
+sharedPrefenrence:(简介， 详细对比见39)
 
  SP 的底层是由Xml来实现的，操作SP的过程就是Xml的序列化和解析的过程。Xml是存储在磁盘上的，因此当我们频繁进行SP操作时，就是频繁进行序列化与解析，这就频繁进行I/O的操作，所以肯定会导致性能消耗。同时序列化Xml是就是将内存中的数据写到Xml文件中，由于DVM 的内存是很有限的，因此单个SP文件不建议太大，具体多大是没有一个具体的要求的，但是我们知道DVM 堆内存也就是**16M**，因此数据大小肯定不能超过这个数字的。其实 SP 设置的目的就是为了保存用户的偏好和配置信息的
 
@@ -2042,7 +2042,24 @@ https://blog.csdn.net/dingshuhong_/article/details/104700096
 2. Observer：观察者模式中的“观察者”，可接收Observable发送的数据；有四个关键方法，onSubscribe， onNext，onError（），onComplete()
 
 3. subscribe：订阅，观察者与被观察者，通过subscribe()方法进行订阅； 
+
 4. Subscriber：也是一种观察者，在2.0中 它与Observer没什么实质的区别. 不同的是 Subscriber要与Flowable(也是一种被观察者)联合使用，该部分内容是2.0新增的，后续文章再介绍。Obsesrver用于订阅Observable，而Subscriber用于订阅Flowable
+
+   
+
+5. subjectSubject在同一时间内，既可以作为Observable，也可以作为Observer
+
+```java
+/*     PublishSubject只会给在订阅者订阅的时间点之后的数据发送给观察者。
+
+* BehaviorSubject在订阅者订阅时，会发送其最近发送的数据（如果此时还没有收到任何数据，它会发送一个默认值）。
+
+* ReplaySubject在订阅者订阅时，会发送所有的数据给订阅者，无论它们是何时订阅的。
+
+* AsyncSubject只在原Observable事件序列完成后，发送最后一个数据，后续如果还有订阅者继续订阅该Subject, 则可以直接接收到最后一个值。
+*
+* ReplaySubject 和 BehaviorSubject 都有粘性的特点，但是Behavior无法保证接收一个事件是需要的event*/
+```
 
 ## 20.2 基本使用
 
@@ -2778,7 +2795,23 @@ try {
 
 
 
-# 39.MMKV
+# 39.MMKV 与SP
+
+**sharedPrefences：**
+
+MMKV 是sharedP的优化, sp初始化子线程读取xml存在arraymap中，final map存在k name和v xml文件 ，会持续占用内存
+
+commit（同步） apply（异步）都会anr 异步任务过多，等待锁过多（锁会放到Queuework中），activity onstop或者service onstop onstartcommand时候会等待queuework释放（Queuework.waitToFinish）
+
+sp更新是全量更新
+
+**MMKV:**（优化sp）
+
+mmkv解决方案：mmap内存映射→零拷贝技术。java filechannel底层也是mmap。m-map映射之后存在map
+
+解决方案2：数据格式protobuf（key长度值动态长度，比如arraylist扩容同理），类似二进制链表，总长-key长-key-v长-v-总长...，每次读取都是最新的。而且数据紧凑，没有太多多余数据
+
+解决方案3：局部更新，增量更新，增加时候直接添加数据在“链表”后。缺点：1.重复数据越来越多，需要去重，达到最大值时，进行一次全量更新 2、动态扩容
 
 # 40.LeakCanary
 
