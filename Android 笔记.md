@@ -716,11 +716,11 @@ window是个抽象概念，其具体实现类是phonewindow**，activity和dialo
 
 ## 7.2 View绘制流程
 
-onResume中无法正常获取宽高，此时还没viewroot.addview,
+onResume中无法正常获取宽高，此时还没viewroot.addview, resume之后才会触发绘制流程
 
 未perfromTraversal**
 
-ams -》ActivityThread。handleResume-》wmGlobal。updateViewLayout-》viewrootImpl。SETLAYOUTPARAMS-》viewrootImpl。requestlyout（）
+ams -》**ActivityThread。handleResume**-》wmGlobal。updateViewLayout-》viewrootImpl。SETLAYOUTPARAMS-》viewrootImpl。requestlyout（）
 
 -》viewrootImpl。**scheduleTravsals**（绘画的起点）-》（viewrootImpl）**doTraversal-》perfromTraversal（）-》performMeasure，performDraw，performlAYOUT，调用decordview的各个绘制过程**
 
@@ -761,7 +761,7 @@ ams -》ActivityThread。handleResume-》wmGlobal。updateViewLayout-》viewroot
 
 #### ***invalidate**：*
 
-viewTree的子view调用invalidate（），其实是调用viewGroup的invalidateChildInPrarent（该过程支持硬件加速。此过程mPrivateFlags标记了刷新的view和标记对应受影响的矩形区域dirty），不断自下而上回调到Decoview，到rootviewimpl，,调用perfromTravsals，开始绘制流程
+viewTree的子view调用invalidate（），其实是调用viewGroup的invalidateChildInParent（该过程支持硬件加速。此过程mPrivateFlags标记了刷新的view和标记对应受影响的矩形区域dirty），不断自下而上回调到Decoview，到rootviewimpl，,调用perfromTravsals，开始绘制流程
 
 Webvie建议使用硬件加速，不然又加载问题，有了也可能会出现其他问题
 
@@ -888,11 +888,13 @@ View的这个方法是被它的父控件调用的，也就是说widthMeasureSpec
 
 
 
-### 7.3.4 常见问题
+### 7.2.4 常见问题
 
-1）onResume中无法正常获取宽高，但postdelay之后可以（参考handleResmue和addview创建过程和时机
+1）onResume中无法正常获取宽高，但postdelay之后可以（参考handleResume和addview创建过程和时机，或者在onWindowsFocusChange中（**得到焦点**或者**失去焦点**时会调用，绘制完毕时候会调用）
 
 2）onResume中可以在子线程操作view（没有触发activtiy刷新，其余原理同上
+
+### 7.2.5 扩展内容
 
 ##  7.3自定义view
 
@@ -2259,6 +2261,10 @@ setvalue（主线程）或者postvalue（任意线程，最后还是setvalue）�
     }
 ```
 
+
+
+## MVI
+
 # **23.Retrofit**浅析
 
 ```
@@ -2861,4 +2867,94 @@ Bitmap在内存当中占用的大小其实取决于以下三点：
 - 4.4 以上解码Bitmap 要使用decodeStream, 同时给decodeStream的文件流是BufferedInputStream(可以根据文件大小指定恰当的大小，避免浪费)，decodeFile是fileinputstream
 
 - decodeResoure 是项目中常见的API，同样也存在此问题，可以使用decodeResourceStream代替
+
+# 44.启动优化
+
+**启动模式：**
+
+LaunchState: COLD （冷启动）
+
+LaunchState: HOT （热启动）
+
+LaunchState: WARM （温启动）
+
+LaunchState: UNKNOWN (0)  （应用在前台时，调用adb命令）
+
+**冷启动**
+
+冷启动是指应用从头开始启动：系统进程在冷启动后才创建应用进程。发生冷启动的情况包括应用
+
+自设备启动后或系统终止应用后首次启动。
+
+**热启动**
+
+在热启动中，系统的所有工作就是将 Activity 带到前台。只要应用的所有 Activity 仍驻留在内存
+
+中，应用就不必重复执行对象初始化、布局加载和绘制。例如按Home键
+
+**温启动**
+
+温启动包含了在冷启动期间发生的部分操作；同时，它的开销要比热启动高。有许多潜在状态可视
+
+为温启动。例如
+
+- 用户在退出应用后又重新启动应用。进程可能未被销毁，继续运行，但应用需要执行onCreate() 从头开始重新创建 Activity。
+- 系统将应用从内存中释放，然后用户又重新启动它。进程和 Activity 需要重启，但传递到onCreate() 的已保存的实例 state bundle 对于完成此任务有一定助益。
+
+作者：maybe0813
+链接：https://www.jianshu.com/p/7a909d052e4b
+来源：简书
+
+## 1.老三样
+
+a. view布局避免过深，使用viewstub替换
+
+b.在application初始化时，第三方sdk懒加载。启动页不重要的使用子线程加载，但是需要注意子线程尚未加载/加载未成功但是在mainThread使用的情况
+
+c.启动页黑白屏, AppTheme设置<item name="android:windowBackground">XXXX(图片，颜色)</item>
+
+## 2.Multidex
+
+分dex越多，速度也越慢（multidex生成方法数）
+
+gradle开启multiDexEnable，在 application配置 attachBaseContext()
+
+{ MultiDex.install(this);}
+
+## 3.分析
+
+```shell
+#使用以下命令检测启动时间
+adb shell am start -S -W [packageName]/[activityName]
+```
+
+使用DebugAPI及profiler 工具诊断问题
+
+```java
+ public MyApplication() {
+      //相对sd卡路径，会在sd卡中生成一个app.trace文件（需要sdcard读写权限）。将手机中的trace文件保存至电脑，随后拖入Android Studio即可。
+       //跟踪方式
+        Debug.startMethodTracing("app");
+          //采样方式，间隔1s
+          //Debug.startMethodTracingSampling("app",8*1024*1024,1000);
+    }
+```
+
+在启动页的activity中添加stopMethodTracing
+
+```java
+@Override 
+public void onWindowFocusChanged(boolean hasFocus) { 
+  super.onWindowFocusChanged(hasFocus); 
+  Debug.stopMethodTracing(); 
+}
+```
+
+生成的tarce文件使用profiler优先查看耗时较长的方法并分析代码
+
+定位问题：避免I/O操作、反序列化、网络操作、布局嵌套等。
+
+//例：初始化application的时候使用了sp进行io
+
+# 45.热修复
 
