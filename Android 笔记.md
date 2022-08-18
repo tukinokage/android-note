@@ -194,6 +194,8 @@ https://www.jianshu.com/p/7155b224ddfc
 
 ## 4.apk打包流程
 
+dex生成、instant run等看 **45.热修复**
+
 ### 1.打包资源文件，生成R.java文件
 
 aapt（打包工具）来打包res资源文件，生成R.java、resources.arsc和res文件。
@@ -2534,6 +2536,8 @@ destroyItem是fm进行了remove
    1）**基于架构不同**：**Dalvik虚拟机基于寄存器架构**；Java虚拟机基于**栈架构**。
    2）**执行字节码不同**：**Java虚拟机执行.class文件**；Dalvik虚拟机需要把所有的.**class文件打包到一个.dex文件中**。
    3）共享机制：Dalvik虚拟机**不同应用之间在运行时可以共享相同的类**；Java虚拟机**不同程序打包以后时独立的**。
+   
+   如果要分dex需要引入multi-dex
 
 ## 28.2 ART
 
@@ -2546,6 +2550,8 @@ destroyItem是fm进行了remove
    3）**ART对GC机制进行了优化**。
    4）运行时堆空间划分不同。具体可参考Android内存优化(如下)
 
+   5）支持多dex加载，优先加载classes.dex
+
    
 
    Dalvik内存管理特点是:内存碎片化严重，当然这也是Mark and Sweep算法带来的弊端
@@ -2553,7 +2559,7 @@ destroyItem是fm进行了remove
    [![img](https://camo.githubusercontent.com/b552fa6b7ee884a669d9ab772aa55b0d412a92b0/687474703a2f2f75706c6f61642d696d616765732e6a69616e7368752e696f2f75706c6f61645f696d616765732f333938353536332d663137306434386630383939326233642e706e673f696d6167654d6f6772322f6175746f2d6f7269656e742f7374726970253743696d61676556696577322f322f772f31323430)](https://camo.githubusercontent.com/b552fa6b7ee884a669d9ab772aa55b0d412a92b0/687474703a2f2f75706c6f61642d696d616765732e6a69616e7368752e696f2f75706c6f61645f696d616765732f333938353536332d663137306434386630383939326233642e706e673f696d6167654d6f6772322f6175746f2d6f7269656e742f7374726970253743696d61676556696577322f322f772f31323430)
 
    可以看出每次gc后内存千疮百孔，本来连续分配的内存块变得碎片化严重，之后再分配进入的对象再进行内存寻址变得困难。
-
+   
    ART的解决:在ART中,它将Java分了一块空间命名为Large-Object-Space,**这块内存空间的引入用来专门存放large object**。同时ART又引入了moving collector的技术,即将不连续的**物理内存块进行对齐**.对齐了后内存碎片化就得到了很好的解决.Large-Object-Space的引入一是因为moving collector对大块内存的位移时间成本太高,而且提高内存的利用率 根官方统计，ART的内存利用率提高10倍了左右。
 
 # 29.LruCache
@@ -2958,3 +2964,71 @@ public void onWindowFocusChanged(boolean hasFocus) {
 
 # 45.热修复
 
+android类加载机制：Android的类加载和Java的类加载比较类似，都是通过ClassLoader类加载器进行加载，唯一的区别就是Android类加载器加载的是dex文件，所以在Android中加载器的基类叫做BaseDexClassLoader，这个类之下会有两个子类，一个叫做PathClassLoader，它负责加载Android的SDK，当代码中引用到Android框架的本身类的时候都是通过PathClassLoader进行加载的；而另外一个子类叫做DexClassLoader，这个类就是用于加载业务层面代码的加载器。
+
+链接：https://juejin.cn/post/6844903508865449991
+来源：稀土掘金
+
+
+
+推荐:
+
+阿里百川实现层面分析三大热修复流派（2016年文章）：https://mp.weixin.qq.com/s/uY5N_PSny7_CHOgUA99UjA?spm=a2c4g.11186623.0.0.20441896RrULI1
+
+## 常见原理：
+
+### 1、插桩
+
+![](pic\3b40d1c776ea80ad64be32e152cb0c86~tplv-t2oaga2asx-zoom-in-crop-mark 3024 0 0 0.webp)
+
+多个dex文件加载到内存中时形成dexElement数组，DexClassLoader当系统需要加载会遍历该数组，将补丁dex放到该数组第一个
+
+而实际情况中，做这样的方案是不行的。直接进行替换就会出现预校验的问题。
+
+![](pic\e3a6234eb5a639f91db1e52ea5827aa0~tplv-t2oaga2asx-zoom-in-crop-mark 3024 0 0 0.webp)
+
+
+
+预检验问题是app安装时会存在dex opt操作变成odex文件（优化dex的操作）
+
+当**某一个类所有的构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候**，这个类就会被打上class_ispreverified标签。所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误
+
+
+
+解决的思路是当这些类已经被编译完成之后，在字节码的层面去注入一些来自于其他dex的类。
+
+Android的gradle插件也提供了这样的一些接口，叫做Transform的API。这个API会提供一个调用的时机，当代码文件被编译成JAR但是还没有被打成dex的时候，提供了在这个时期做一些事情的接口。正是利用这个接口，当拿到编译完成的字节码文件之后，可以对其进行字节码的注入，进行所谓的插桩，插入一些来自于其他dex文件的类，这样当App再被安装并执行dex    opt过程的时候就不会再被打上预校验的标签
+
+
+
+**优势：**
+
+1. 没有合成整包（和微信Tinker比起来），产物比较小，比较灵活
+2. 可以实现类替换，兼容性高。（某些三星手机不起作用）
+
+**不足：**
+
+1. 不支持即时生效，必须通过重启才能生效。
+
+2. 为了实现修复这个过程，必须在应用中加入两个dex！dalvikhack.dex中只有一个类，对性能影响不大，但是对于patch.dex来说，修复的类到了一定数量，就需要花不少的时间加载。对手淘这种航母级应用来说，启动耗时增加2s以上是不能够接受的事。
+
+3. 在ART模式下，如果类修改了结构，就会出现内存错乱的问题。为了解决这个问题，就必须把所有相关的调用类、父类子类等等全部加载到patch.dex中，导致补丁包异常的大，进一步增加应用启动加载的时候，耗时更加严重。
+
+### 2、instant  run方案
+
+a. instant run 增量编译，apk生成过程
+
+![](pic\a8bec558f5bf9e483f0b70c6b6197edf~tplv-t2oaga2asx-zoom-in-crop-mark 3024 0 0 0.webp)
+
+b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
+
+1.  当bootstrap application启动之后会首先加载classes.dex和classes2.dex这两个主dex文件，当这两个主dex文件启动之后，就会启动AppServer服务。这里可以将AppServer理解为一个服务器，它会与IDE也就是Android Studio建立连接。当连接建立之后，后续在开发的过程中的代码改动所形成的补丁包都会通过这个连接下发到App上，并且通过AppServer接收，再通过相应的处理使得补丁生效。
+2.  当完成了第一个步骤之后，会用本身的ClassLoader去加载instantrun.zip包里面真正的工程代码。
+3.  最后一步，将宿主application替换成真实的realApplication，然后真正地运行自定义application里面的逻辑，达到隐藏自身的效果。
+
+
+来源链接：https://juejin.cn/post/6844903508865449991
+
+## 3、Tinker
+
+## 4、sophix
