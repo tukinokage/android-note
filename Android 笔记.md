@@ -519,6 +519,44 @@ android app默认**无任何权限**，必须在AndroidManifest中声明
 
 **要点三：**运行在 Android 6.0 及以上版本，App targetSdkVersion 大于23，**则需要在运行时向用户请求权限**，**并且需要在 App 使用相关的权限之前检查自身是否已被授予该权限。**
 
+
+
+```java
+ if (ContextCompat.checkSelfPermission(getApplication(), Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {    
+     //拥有权限，做你想做的事情    
+     doyourSelfSomething(); 
+ } else{    //没有开启权限，向系统申请权限    
+         ActivityCompat.requestPermissions(activity, new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, 114514); }
+
+
+
+```
+
+用户不同意开启权限有以下三种情况，用shouldShowRequestPermissionRationale方法判断。
+
+```java
+/*shouldShowRequestPermissionRationale方法返回值分几种情况：
+1、第一次请求该权限，返回false。
+2、请求过该权限并被用户拒绝，返回true。（例子是这种情况，一般都是该种情况，只要不勾选不再提醒，就会一直询问权限是否开通）
+3、请求过该权限，但用户拒绝的时候勾选不再提醒，返回false。*/
+
+@Override
+public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        //通过requestCode来识别是否同一个请求
+        if (requestCode == 114514){
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                //用户同意开启权限，执行操作
+                doyourSelfSomething();
+                
+            }else{//不同意
+
+        }
+```
+
+链接：https://juejin.cn/post/6844904029156278279
+
+
+
 **要点四：**运行在 Android 6.0 以下版本，或App targetSdkVersion 小于23（此时设备可以是Android 6.0 (API level 23)或者更高），则系统会在用户安装则系统会在用户安装App时要求用户授予权限，系统就告诉用户App需要什么权限组。如果App将新权限添加到更新的应用版本，系统会在用户更新应用时要求授予该权限。用户一旦安装应用，他们撤销权限的唯一方式是卸载应用。
 
 
@@ -1725,6 +1763,8 @@ butterknife本身不是通过反射实现viewbinding，而是在编译阶段直�
 
 缺点会生成更多的类，工程大小会受到影响。
 
+# 13.kotlin编译
+
 
 
 # 13.Android-APT
@@ -1786,6 +1826,41 @@ javaPoet  ：一款可以自动生成Java文件的第三方依赖 ，配置类�
 > ```
 
 
+
+KAPT/KCP/KSP :  https://juejin.cn/post/6979759813467062309
+
+## 13.1 KAPT/KCP
+
+### KAPT
+
+ 基于APT的针对kotlin开发的编译处理器，APT无法处理kotlin代码。简单来说kotlin生成
+
+stub文件再生成对应注解的java源码，大程度上影响编译速度
+
+![](pic\a6a51d0c3b7b468b8db59d76607f158d~tplv-k3u1fbpfcp-zoom-in-crop-mark 3024 0 0 0.webp)
+
+**优化建议：**
+
+之前遇到很多项目组，为了方便会创建一个 library.gradle/base.gradle 这样的文件，这个文件中定义了很多通用的 kapt 依赖，随着项目模块化组件化的改造，项目中模块数量越来越多，一些只包含 model 类和接口、完全不需要 kapt 的 api 模块也被统一的使用到了这些 kapt 依赖，使得项目中有大量模块进行了无意义的 kapt 耗时， 因此我们建议：
+
+- 尽量不要在类似于 library.gradle 的文件中为所有 module 添加统一的 kapt 依赖，改成具体模块按需使用。
+- 或者有区分度的创建 library.gradle， library-api.gradle ，按照模块类型选择适当的模板文件，如api 类型的模块就不需要 apply kotlin-kapt 的 plugin，也不需要依赖 kapt 库
+
+
+作者：字节跳动终端技术
+链接：https://juejin.cn/post/7070849501166059551
+
+
+
+### KCP
+
+Kotlin Compiler Plugin** 在 kotlinc 过程中提供 hook 时机，可以再次期间解析 AST、修改字节码产物等，Kotlin 的不少语法糖都是 KCP 实现的，例如 `data class`、 `@Parcelize`、`kotlin-android-extension` 等, 如今火爆的 Compose 其编译期工作也是借助 KCP 完成的
+
+
+
+## 13.2 KSP
+
+`KSP` 即 [`Kotlin Symbol Processing(Kotlin符号处理器)`](https://link.segmentfault.com/?enc=u%2FEAQcke9VtpUFZb9vCzaw%3D%3D.6DNuPQzvJgRJHyRD2Lq36T03GALBUYEfpm85nn2Clug%3D)，KSP 目前只能生成代码，不能修改字节码，第一篇中的问题需要修改字节码，因此 KSP 不能满足需求。生成代码效率最高
 
 # 14.序列化：Serializable和Pracelable
 
@@ -2065,6 +2140,8 @@ https://blog.csdn.net/dingshuhong_/article/details/104700096
 * ReplaySubject 和 BehaviorSubject 都有粘性的特点，但是Behavior无法保证接收一个事件是需要的event*/
 ```
 
+
+
 ## 20.2 基本使用
 
 定义Observable（被观察者），重写subscribe()；
@@ -2138,6 +2215,14 @@ Observable.just(list).flatMap(new Function<List<String>, ObservableSource<?>>() 
             }
         });
 ```
+
+
+
+### **操作符汇总**
+
+![image-20220909120413866](pic\image-20220909120413866.png)
+
+
 
 
 
@@ -2235,6 +2320,8 @@ UI层和逻辑层分离，UI层不在涉及业务逻辑代码，某层的改动�
 
 ### ViewModel
 
+
+
 viewmodel通常与livedata结合使用。
 
 有时候会用于fragment之间的通信
@@ -2263,7 +2350,9 @@ setvalue（主线程）或者postvalue（任意线程，最后还是setvalue）�
     }
 ```
 
+#### ViewModel 的生命周期
 
+[`ViewModel`](https://developer.android.com/reference/androidx/lifecycle/ViewModel?hl=zh-cn) 对象存在的时间范围是获取 [`ViewModel`](https://developer.android.com/reference/androidx/lifecycle/ViewModel?hl=zh-cn) 时传递给 [`ViewModelProvider`](https://developer.android.com/reference/androidx/lifecycle/ViewModelProvider?hl=zh-cn) 的 [`Lifecycle`](https://developer.android.com/reference/androidx/lifecycle/Lifecycle?hl=zh-cn)。[`ViewModel`](https://developer.android.com/reference/androidx/lifecycle/ViewModel?hl=zh-cn) 将一直留在内存中，直到限定其存在时间范围的 [`Lifecycle`](https://developer.android.com/reference/androidx/lifecycle/Lifecycle?hl=zh-cn) 永久消失：对于 Activity，是在 Activity 完成时；而对于 Fragment，是在 Fragment 分离时。
 
 ## MVI
 
@@ -3032,3 +3121,5 @@ b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
 ## 3、Tinker
 
 ## 4、sophix
+
+# 46.ROOM
