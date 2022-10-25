@@ -116,7 +116,7 @@ post，commit，同步和异步，都会阻塞
 
 广播BroadCastReciever: 
 
-7.0开始移除了三项隐式广播，其中包括了网络状态的广播
+7.0 开始移除了三项隐式广播，其中包括了网络状态的广播
 
 **Android8.0开始，Android将不支持大部分隐式广播，包括自定义的广播和系统的。**
 
@@ -174,11 +174,18 @@ android数据类型所占字节数：
 
 **5.0 art**
 
-6.0动态权限
+6.0
 
-7.0分屏
+动态权限 ，引入了Doze机制和应用程序待机。当屏幕关闭且设备静止时, 打盹模式会限制应用程序的行为。应用程序待机将未使用的应用程序置于限制其网络访问、作业和同步的特殊状态。
+
+7.0
+
+分屏
 
 8.0多显示器
+
+系统不允许后台应用创建后台服务（service）。因此Android 8.0引入了一种全新的方法，即 Context.startForegroundService()，以在前台启动新服务。在系统创建服务后，应用有五秒的时间来调用该服务的 startForeground()方法以显示新服务的用户可见通知。如果应用在此时间限制内未调用startForeground()，则系统将停止服务并声明此应用为ANR。
+原文链接：https://blog.csdn.net/haoyuegongzi/article/details/112000275
 
 9.0支持刘海屏
 
@@ -264,11 +271,13 @@ apk是一个压缩包，里面有lib，META-INF，classes.dex，res，resources.
 
 ## 2.2 Activity生命周期和启动流程
 
-onCreate  onStar（）onResume  开始绘制 -> 切换界面->onPasue
+onCreate  onStar() onResume  开始绘制 -> 切换界面->onPasue
 
 ->onStop ->onDestory
 
 onCreate（saveInstanceState）  参数里-> 恢复
+
+锁屏 onPause()->onStop()
 
 
 
@@ -398,7 +407,11 @@ override fun onRestoreInstanceState(savedInstanceState: Bundle?) {
 
 服务中的代码都默认运行在主线程中，如果直接在服务中执行耗时操作很容易出现ANR（Application not Responding） 所以这个时候需要用到Android多线程编程技术，我们应该在服务的每个具体的方法里启动一个子线程。
 
+Service同时可以用于AIDL的IPC, 在Service的OnBind返回AIDL对象
+
 ## 1.服务类型
+
+Android10之后google推荐使用work workmanager和JobIntentService替代后台service任务
 
 ### 1，前台服务
 
@@ -440,11 +453,18 @@ public class MyService extends Service{
 
 (b)使用bindService()方法启用服务，**调用者与服务绑定在了一起，调用者一旦退出，服务也就终止，大有“不求同时生，必须同时死”的特点。**
 
+通过bindService绑定Service相对startService方式要复杂一点。 由于bindService是异步执行的，所以需要额外构建一个ServiceConnection对象用与接收bindService的状态，同时还要指定bindService的类型
+
+
+
+链接：https://juejin.cn/post/6844903781541347341
+
+
 (3)开发人员需要在应用程序配置文件中声明全部的service，使用<service></service>标签。
 
 (4)Service通常位于后台运行，它一般不需要与用户交互，因此Service组件没有图形用户界面。Service组件需要继承Service基类。Service组件通常用于为其他组件提供后台服务或监控其他组件的运行状态。
 
-## 4.**IntentService** 
+## 4.**IntentService** （新版本已丢弃）
 
 但是，这种服务一旦启动之后，就会一直处于运行状态，必须调用stopService()或者stopSelf()方法才能让服务停止下来，所以，如果想要实现让一个服务在**执行完毕后自动停止**的功能，就可以这样写：
 
@@ -3123,3 +3143,35 @@ b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
 ## 4、sophix
 
 # 46.ROOM
+
+# 47.协程
+
+## 1。三个启动函数
+
+lanch，sync， runBlocking
+
+
+
+Deferred是Java中Future的一种类似物：in封装了一个操作，该操作将在初始化后的某个时候完成。但也与Kotlin中的协程有关。
+
+从文档：
+
+> Deferred value is a non-blocking cancellable future — it is a Job that has a result.
+
+因此，Deferred是具有结果的job：
+
+## 2、suspend函数
+
+协程代码块内必须是挂起函数，可以携带除了上列启动函数歪，还可以使用withContext执行线程切换
+
+
+
+suspend koltin编译过程（cps过程）
+
+![](D:\shayue\笔记\pic\4714178-00aaf3c27f707227.webp)
+
+## 3、协程任务并发处理
+
+1. 在启动更多协程之前**取消之前的任务**；
+2. **让下一个任务排队**等待前一个任务执行完成；（ mutex() ）
+3. 如果有一个任务正在执行，**返回该任务**，而不是启动一个新的任务。newSingleThreadContext("xxxxx")协程context，但不适合任务过多的情况，频繁切换线程上下文导致效率低下
