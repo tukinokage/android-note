@@ -411,9 +411,9 @@ Service同时可以用于AIDL的IPC, 在Service的OnBind返回AIDL对象
 
 ## 1.服务类型
 
-Android10之后google推荐使用work workmanager和JobIntentService替代后台service任务
+**Android10之后google推荐使用work，workmanager和JobIntentService(也已丢弃，傻逼谷歌，出没一会又是推荐的，就不用了)替代后台service任务**
 
-### 1，前台服务
+### 1. 前台服务
 
 用户所知道的，且内存不足的情况下的不被系统回收，前台服务必须给状态栏一个通知，被放到正在运行的状态栏下。**该通知只能在服务被终止或者从前台主动移除后才能被解除。**
 
@@ -439,9 +439,11 @@ public class MyService extends Service{
 
 
 
-### 2，后台服务
+### 2. 后台服务
 
 一般情况下，Service几乎都是在后台运行，一直默默地做着辛苦的工作。但这种情况下，**后台运行的Service系统优先级相对较低**，当系统内存不足时，在后台运行的Service就有可能被回收。 
+
+
 
 ## 2.服务之间通信
 
@@ -515,7 +517,71 @@ onUnbind：
 
 onReBind：旧的组件解绑后与新组件绑定会调用
 
+6.JobService
 
+## *6*. JobService
+
+**JobService是Android针对后台任务优化推出的新组件，和**Servie**有着细致的关系又有很多不同。在需要执行后台任务的时候，面对JobService和Service，应该如何选择？
+
+#### **原理上的对比**
+
+***Service\***   
+
+App通过Context发出请求，AMS接收请求后进行调度，通知App侧进行创建，开始，停止(或绑定，解绑)和销毁Service。
+
+***JobService***    
+
+App通过**JobScheduler**接口发出创建JobService请求，JobSchedulerService接收到请求后解析任务执行的条件，通过AMS去依照任务的条件调度JobService的创建，绑定和解绑。不同于Service，JobService的开始，取消和停止等操作不是由App发出，由**JobSchedulerService**自行处理。
+
+#### **执行条件的对比**
+
+***Service\***   
+
+Service的启动并没有什么特定的条件设置，如果说非要有什么具体的执行条件的话，就是App根据业务逻辑在适当的时候调用startService()或者bindService()。
+
+***JobService\***   
+
+JobService的执行需要至少一个条件。没有条件的JobService是无法启动的，在创建JobInfo的时候会发生异常。
+
+#### **启动时机上的对比**
+
+***Service***   
+
+App一旦通知Context去执行startService()，Service将得到运行。(使用bindService()的话，Service的运行取决于ServiceConnection的onServiceConnected()的回调)
+
+***JobService***  
+
+JobService必须等待执行条件满足了才能被创建和开始。
+
+#### **执行时间上的对比**
+
+***Service***   
+
+onStartCommand()回调在UI线程，不宜执行耗时逻辑，否则可能造成ANR。
+
+***JobService***   
+
+onStartJob()的回调也执行在UI线程，亦不宜执行耗时逻辑，否则可能造成ANR或者在超过8s后Job被强制销毁。并且，JobService里即便新起了工作线程，处理的时间也不能超过10min，否则Job仍会被强制销毁。
+
+#### **能否再启动的对比**
+
+***Service***    
+
+onStartCommand()返回START_STICKY可以告诉AMS在被停止后自动启动。
+
+***JobService***   
+
+onStopJob()返回true，即可设置在被强制停止后可以再度启动。除了这些原理上的细微区别，那么你更应该关注实际应用上的不同。
+
+#### **实际应用**
+
+***Service***   
+
+适合需要常驻后台，立即执行，进行数据获取，功能维持等场景，比如音乐播放，定位，邮件收发等。
+
+***JobService***   
+
+适合不需要常驻后台，不需要立即执行，在某种条件下触发，执行简单任务的场景。比如联系人信息变化后的快捷方式的更新，定期的更新电话程序的联系人信息，壁纸更改后去从壁纸提取颜色的后台任务。
 
 # 4.Android 运行时权限要点
 
@@ -1082,6 +1148,31 @@ Window 有三种类型，分别是**应用 Window**、**子 Window** 和**系统
 
 wm = 接口viewManager，接口windowManager，windowsMangerImpl实现类，，《—windowsMangerGlobal是wmImpl内部的单例，viewrootImpl操作view
 
+
+
+## 7.5 沉浸式
+
+安卓的可以分为三个阶段
+
+- Android4.4(API 19) - Android 5.0(API  21)：这个阶段可以实现沉浸式，但是表现得还不是很好，实现方式为:   通过FLAG_TRANSLUCENT_STATUS设置状态栏为透明并且为全屏模式，然后通过添加一个与StatusBar  一样大小的View，将View 的  background 设置为我们想要的颜色，从而来实现沉浸式;
+
+- 获取decoview
+
+- Android 5.0(API 21)以上版本：在Android 5.0的时候，加入了一个重要的属性和方法  android:statusBarColor  (对应方法为  setStatusBarColor)，通过这个方法我们就可以轻松实现沉浸式。也就是说，从Android5.0开始，系统才真正的支持沉浸式;
+
+- ```
+  getWindow().addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS); 
+  //注意要清除 FLAG_TRANSLUCENT_STATUS flag 跟5.0不兼容
+  getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS); 
+  getWindow().setStatusBarColor(getResources().getColor(android.R.color.holo_red_light)); 
+  ```
+
+
+
+- Android 6.0(API 23)以上版本：其实Android6.0以上的实现方式和Android 5.0   +是一样，为什么要将它归为一个单独重要的阶段呢?是因为从Android 6.0(API   23)开始，我们可以改状态栏的绘制模式，可以显示白色或浅黑色的内容和图标(除了魅族手机，魅族自家有做源码更改，6.0以下就能实现);
+
+
+
 # 8. Fragment 懒加载的实现
 
 生命周期：
@@ -1126,6 +1217,8 @@ public void onStartCommand(Intent inent, int flags, int startId){
 ```
 
 ### 2，Service的onDestroy中重启service(startService方式)
+
+！！android8已无法从后台启动后台服务
 
 ```java
 @Override
@@ -2346,7 +2439,7 @@ viewmodel通常与livedata结合使用。
 
 有时候会用于fragment之间的通信
 
-**livedata需要传入lifecycleOwner（lifecycle下的组件），和obsever。一个用于观察生命周期，及时移除观察者（acti，frag）。**
+**livedata需要传入ViewModelStoreOwner（lifecycle下的组件），和obsever。一个用于观察生命周期，及时移除观察者（acti，frag）。**
 
 setvalue（主线程）或者postvalue（任意线程，最后还是setvalue）改变其值。
 
@@ -2370,9 +2463,28 @@ setvalue（主线程）或者postvalue（任意线程，最后还是setvalue）�
     }
 ```
 
+
+
+##### ViewModelStoreOwner和ViewModelStore
+
+`ViewModelStoreOwner`就是一个接口，而`ViewModelStore `则有了一些内容：它通过一个HashMap持有并管理者ViewModel，并且提供了增加和获取ViewModel的方法，以及清空HashMap和所有ViewModel的方法。结合它们名字中的Store。
+
+activty是实现了viewmodelstoreOwner接口，
+
+作者：白瑞德
+链接：https://juejin.cn/post/7044416943498985485
+
+
+
 #### ViewModel 的生命周期
 
 [`ViewModel`](https://developer.android.com/reference/androidx/lifecycle/ViewModel?hl=zh-cn) 对象存在的时间范围是获取 [`ViewModel`](https://developer.android.com/reference/androidx/lifecycle/ViewModel?hl=zh-cn) 时传递给 [`ViewModelProvider`](https://developer.android.com/reference/androidx/lifecycle/ViewModelProvider?hl=zh-cn) 的 [`Lifecycle`](https://developer.android.com/reference/androidx/lifecycle/Lifecycle?hl=zh-cn)。[`ViewModel`](https://developer.android.com/reference/androidx/lifecycle/ViewModel?hl=zh-cn) 将一直留在内存中，直到限定其存在时间范围的 [`Lifecycle`](https://developer.android.com/reference/androidx/lifecycle/Lifecycle?hl=zh-cn) 永久消失：对于 Activity，是在 Activity 完成时；而对于 Fragment，是在 Fragment 分离时。
+
+
+
+`ViewModel`的生命周期是通过`Lifecycle`与Activity绑定的。**每当activity销毁时，onDestory方法就会通过Lifecycle调用ViewModelStore的clear方法，从而达到销毁ViewModel的目的**
+
+![](pic\af19580c836f4d8299742822d16416e9~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.png)
 
 ## MVI
 
@@ -3142,11 +3254,13 @@ b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
 
 ## 4、sophix
 
-# 46.ROOM
+# 46.JETPACK--ROOM
+
+JETPACK
 
 # 47.协程
 
-## 1。三个启动函数
+## 1, 三个启动函数
 
 lanch，sync， runBlocking
 
@@ -3175,3 +3289,99 @@ suspend koltin编译过程（cps过程）
 1. 在启动更多协程之前**取消之前的任务**；
 2. **让下一个任务排队**等待前一个任务执行完成；（ mutex() ）
 3. 如果有一个任务正在执行，**返回该任务**，而不是启动一个新的任务。newSingleThreadContext("xxxxx")协程context，但不适合任务过多的情况，频繁切换线程上下文导致效率低下
+
+同一个协程作用域中的异步任务遵守顺序原则开始执行; 适用于串行网络请求, 在一个异步任务需要上个异步任务的结果时.
+
+协程挂起需要时间, 所以异步协程永远比同步代码执行慢
+
+```kotlin
+fun main() = runBlocking<Unit> {
+    launch {
+        System.err.println("(Main.kt:34)    后执行")
+    }
+
+    System.err.println("(Main.kt:37)    先执行")
+}
+
+链接：https://juejin.cn/post/6844904037586829320
+来源：稀土掘金
+```
+
+**注意：**其实runBlocking从名字就能看的出来，是阻塞的意思，所以它启动的协程特点就是**会阻塞线程执行**。
+
+这里其实可以从2个方面来理解，一个是阻塞线程，比如Android在主线程调用runBlocking函数，**这时线程将进入等待状态，等待runBlocking函数执行完成**，假如该函数执行太久，就会导致主线程ANR
+
+**正常项目中，是特别不推荐使用runBlocking的**，建议只在测试中使用。
+
+尽可能使用async.await替代
+
+
+
+当在协程作用域中使用`async`函数时可以创建并发任务
+
+```kotlin
+public fun <T> CoroutineScope.async(
+    context: CoroutineContext = EmptyCoroutineContext,
+    start: CoroutineStart = CoroutineStart.DEFAULT,
+    block: suspend CoroutineScope.() -> T
+): Deferred<T>
+复制代码
+```
+
+示例
+
+```kotlin
+fun main() = runBlocking<Unit> {
+	val name = async { getName() }
+    val title = async { getTitle() }
+
+    System.err.println("(Main.kt:35)    result = ${name.await() + title.await()}")
+    delay(2000)
+}
+链接：https://juejin.cn/post/6844904037586829320
+来源：稀土掘金
+```
+
+1. 返回对象`Deferred`; 通过函数`await`获取结果值
+
+2. Deferred集合还可以使用`awaitAll()`等待全部完成
+
+3. 不执行`await`任务也会等待执行完协程关闭
+
+4. 如果Deferred不执行await函数则async内部抛出的异常不会被logCat或tryCatch捕获, 但是依然会导致作用域取消和异常崩溃; 但当执  行await时异常信息会重新抛出
+
+   ## 4. 协程间的通信
+
+   协程与协程间不能直接通过变量来访问数据，会导致数据原子性的问题，所以协程提供了一套`Channel`机制来在协程间传递数据。
+
+   Channel 是一个和 `BlockingQueue` 非常相似的概念。其中一个不同是它代替了阻塞的 `put` 操作并提供了挂起的 `send`，还替代了阻塞的 `take` 操作并提供了挂起的 `receive`。
+
+   `Channel`发送和接收操作是 公平的 并且尊重调用它们的多个协程。它们遵守先进先出原则，可以看到第一个协程调用 receive 并得到了元素
+
+   ```javascript
+   import kotlinx.coroutines.*
+   import kotlinx.coroutines.channels.*
+   
+   fun main() = runBlocking {
+       val channel = Channel<Int>()
+       launch {
+           // 这里可能是消耗大量CPU运算的异步逻辑，我们将仅仅做5次整数的平方并发送
+           for (x in 1..5) channel.send(x * x)
+           channel.close()
+       }
+       // 这里我们打印了5次被接收的整数：
+       // channel.receive()是阻塞的，等待发送数据发送完毕
+       repeat(5) { println(channel.receive()) }
+       println("Done!")
+   }
+   ```
+
+   当发送完毕后，记得调用`channel.close()`，`close()`操作就像向通道发送了一个特殊的关闭指令。 这个迭代停止就说明关闭指令已经被接收了。所以这里保证所有先前发送出去的元素都在通道关闭前被接收到。
+
+# 48.JETPACK--Navigation
+
+简述：主要应用于导航栏之间fragment的跳转，或者fragmnet->activtiy
+
+1.navigation虽然navigate切换fragment会重新创建，但是view的状态会被保存和恢复，除了checkbox
+
+2.navigation控制跳转的是FragmentNavigator的navigate，其中使用的是fragmnetManager的replace的，所以每次都会被重新创建fragment，可以通过继承该FragmentNavigator()自定义重写navigate方法，改为Fragment的hide showd
