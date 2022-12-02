@@ -203,6 +203,10 @@ https://www.jianshu.com/p/7155b224ddfc
 
 dex生成、instant run等看 **45.热修复**
 
+
+
+![](pic\dcc282fd0bcc45f686473d2c23a9232f~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.webp)
+
 ### 1.打包资源文件，生成R.java文件
 
 aapt（打包工具）来打包res资源文件，生成R.java、resources.arsc和res文件。
@@ -465,6 +469,25 @@ public class MyService extends Service{
 (3)开发人员需要在应用程序配置文件中声明全部的service，使用<service></service>标签。
 
 (4)Service通常位于后台运行，它一般不需要与用户交互，因此Service组件没有图形用户界面。Service组件需要继承Service基类。Service组件通常用于为其他组件提供后台服务或监控其他组件的运行状态。
+
+(5)onStartCommand方法返回有4种 
+ \- START_STICKY 
+ \- START_NOT_STICKY 
+ \- START_REDELIVER_INTENT 
+ \- START_STICKY_COMPATIBILITY 
+
+START_STICKY：如果service进程被kill掉，保留service的状态为开始状态，但不保留递送的intent对象。随后系统会尝试重新创建service，由于服务状态为开始状态，所以创建服务后一定会调用onStartCommand(Intent,int,int)方法。如果在此期间没有任何启动命令被传递到service，那么参数Intent将为null。
+
+START_NOT_STICKY：“非粘性的”。使用这个返回值时，如果在执行完onStartCommand后，服务被异常kill掉，系统不会自动重启该服务。
+
+START_REDELIVER_INTENT：重传Intent。使用这个返回值时，如果在执行完onStartCommand后，服务被异常kill掉，系统会自动重启该服务，并将Intent的值传入。
+
+START_STICKY_COMPATIBILITY：START_STICKY的兼容版本，但不保证服务被kill后一定能重启。
+
+
+
+作者：proud2008
+链接：https://www.jianshu.com/p/fd49a83bce8d
 
 ## 4.**IntentService** （新版本已丢弃）
 
@@ -1205,6 +1228,31 @@ Fragment可见状态改变时会被调用**setUserVisibleHint()方法**，可以
 
 # 9.防止app/service被杀死（进程保活）
 
+
+
+#### 1.Android 8.0之前-常用的保活方案
+
+> 1.开启一个前台Service
+>  2.Android 6.0+ 忽略电池优化开关(`稍后会有代码`)
+>  3.无障碍服务(只针对有用这个功能的app，如支付宝语音增强提醒用了它)
+
+------
+
+#### 2.Android 8.0之后-常用的保活方案
+
+> 1.开启一个前台Service(可以加上,单独启用的话无法满足保活需求)
+>  2.Android 6.0+ 忽略电池优化开关(`稍后会有代码`)
+>  3.无障碍服务(只针对有用这个功能的app，如支付宝语音增强提醒用了它)
+>  4.应用自启动权限(`最简单的方案是针对不同系统提供教程图片-让用户自己去打开`)
+>  5.多任务列表窗口加锁(`提供GIF教程图片-让用户自己去打开`)
+>  6.多任务列表窗口隐藏App(`仅针对有这方面需求的App`)
+>  7.应用后台高耗电(`仅针对Vivo手机`)
+
+
+
+作者：Halifax
+链接：https://juejin.cn/post/7003992225575075876
+
 ### 1，在service中重写onstartCommand
 
 START_STICK，service被kill后自动重写创建
@@ -1218,7 +1266,7 @@ public void onStartCommand(Intent inent, int flags, int startId){
 
 ### 2，Service的onDestroy中重启service(startService方式)
 
-！！android8已无法从后台启动后台服务
+！！**android8已无法从后台启动后台服务**
 
 ```java
 @Override
@@ -1234,22 +1282,20 @@ public void onDestroy(){
 
 **这个方法, 必须要system app,所以这个基本没用** 
 
-### 4，把service写成系统服务，将不会被回收 ，设置android:persistent="true" 
-
 太多系统级别服务影响性能
 
-### 5， 提高Service的优先级：
+### 4， 提高Service的优先级：
 
 ```xml
 <!-- 为防止Service被系统回收，可以尝试通过提高服务的优先级解决，1000是最高优先级，数字越小，优先级越低 -->  
 android:priority="1000" 
 ```
 
-### 6，利用android系统广播检查（类似心跳检查）
+### 5，利用android系统广播检查（类似心跳检查）
 
 系统广播是Intent.ACTION_TIME_TICK，这个广播每分钟发送一次，我们可以每分钟检查一次Service的运行状态，如果已经被结束了，就重新启动Service。 
 
-### 7，设置服务为前台服务
+### 6，设置服务为前台服务
 
 创建Notification
 
@@ -1278,13 +1324,66 @@ public int onStartCommand(Intent intent, int flags, int startId) {
 }
 ```
 
-## 8.android10 activity保活
+## 7.android10 activity保活
 
 优雅的手断：通过申请用户白名单权限，或者判断不品牌机型跳转设置白名单。
 
-## 9.app自启动
+## 8.app自启动
 
 注册静态广播，接受启动的系统广播。需先打开权限
+
+### 9.忽略Android 6.0+ 忽略电池优化开关和无障碍服务
+
+1.我们需要在AndroidManifest.xml中声明一下权限
+
+```xml
+<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+复制代码
+```
+
+2.通过**Intent**来请求忽略电池优化的权限(需要`引导用户`点击)
+
+```kotlin
+//在Activity的onCreate中注册ActivityResult，一定要在onCreate中注册
+//监听onActivityForResult回调
+mIgnoreBatteryResultContract = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { activityResult ->
+            //查询是否开启成功
+            if(queryBatteryOptimizeStatus()){
+               //忽略电池优化开启成功
+            }else{
+               //开启失败
+            }
+        }
+复制代码
+```
+
+通过Intent`打开`忽略电池优化弹框：
+
+```kotlin
+val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+intent.data = Uri.parse("package:$packageName")
+//启动忽略电池优化，会弹出一个系统的弹框，我们在上面的
+launchActivityResult(intent)
+复制代码
+```
+
+查询`是否成功`开启忽略电池优化开关：
+
+```kotlin
+fun Context.queryBatteryOptimizeStatus():Boolean{
+    val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager?
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        powerManager?.isIgnoringBatteryOptimizations(packageName)?:false
+    } else {
+        true
+    }
+}
+```
+
+
+
+作者：Halifax
+链接：https://juejin.cn/post/7003992225575075876
 
 # 10.AnsycTask分析
 
@@ -1946,7 +2045,7 @@ KAPT/KCP/KSP :  https://juejin.cn/post/6979759813467062309
 
 ### KAPT
 
- 基于APT的针对kotlin开发的编译处理器，APT无法处理kotlin代码。简单来说kotlin生成
+ **基于APT**的针对kotlin开发的编译处理器，APT无法处理kotlin代码。简单来说kotlin生成
 
 stub文件再生成对应注解的java源码，大程度上影响编译速度
 
@@ -2437,7 +2536,7 @@ UI层和逻辑层分离，UI层不在涉及业务逻辑代码，某层的改动�
 
 viewmodel通常与livedata结合使用。
 
-有时候会用于fragment之间的通信
+有时候会用于fragment/activtiy之间的通信
 
 **livedata需要传入ViewModelStoreOwner（lifecycle下的组件），和obsever。一个用于观察生命周期，及时移除观察者（acti，frag）。**
 
@@ -2485,6 +2584,28 @@ activty是实现了viewmodelstoreOwner接口，
 `ViewModel`的生命周期是通过`Lifecycle`与Activity绑定的。**每当activity销毁时，onDestory方法就会通过Lifecycle调用ViewModelStore的clear方法，从而达到销毁ViewModel的目的**
 
 ![](pic\af19580c836f4d8299742822d16416e9~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.png)
+
+
+
+需要注意的是：
+
+
+
+A. 一般来讲，LiveData 是需要配合 ViewModel 来使用的，但千万不要觉得 LiveData 就一定结合  ViewModel。上面也说道二者只是功能互补。这里为了便于理解，我们先单独学习下 LiveData 的使用。
+
+LiveData 的使用分三步：
+
+1. 创建一个 LiveData 的实例，让它持有一种特定的数据类型，比如 String 或者 User .通常是将 LiveData 放在ViewModel中使用的（这里我们先单独使用）。
+2. 创建一个 Observer 对象，并实现其 onChanged(…) 方法，在这里定义当 LiveData 持有的数据发生改变的时候，应该做何操作。可以在这进行UI的更新，一般 Observer 是在 UI controller 中创建，比如 Activity 或者 Fragment 。
+3. 通过创建的 LiveData 实例的 observe(…)方法，将 Observer 对象添加进 LiveData 中。方法的原型为`observe( LifecycleOwner owner, Observer observer)`，第一个参数是 LifecycleOwner对象，这也是 LiveData 能监听生命周期的能力来源。第二个参数就是我们的监听器对象 Observer 
+
+B.LiveData 的作用是在使得数据能具有生命周期感知能力，在 Activity 等变为活跃状态的时候，自动回调观察者中的回调方法。也就是说对数据的变化进行实时监听。而 ViewModel 的作用则是，当因系统配置发生改变导致 Activity 重建的时候（比如旋转屏幕），能对 LiveData 进行正确的保存和恢复
+
+当activity/fragment重建时，重新订阅viewmodel会再次收到事件
+
+总结自： https://juejin.cn/post/6844903814173212680
+
+
 
 ## MVI
 
@@ -3385,3 +3506,111 @@ fun main() = runBlocking<Unit> {
 1.navigation虽然navigate切换fragment会重新创建，但是view的状态会被保存和恢复，除了checkbox
 
 2.navigation控制跳转的是FragmentNavigator的navigate，其中使用的是fragmnetManager的replace的，所以每次都会被重新创建fragment，可以通过继承该FragmentNavigator()自定义重写navigate方法，改为Fragment的hide showd
+
+# 49.Dragger2
+
+简而言之，dagger2中组成内容的对应关系：
+
+    类Module：使用@Module修饰，装载对象的容器。带有此注解的类，用来提供依赖，里面定义一些用@Provides注解的以provide开头的方法，这些方法就是所提供的依赖，Dagger2会在该类中寻找实例化某个类所需要的依赖。
+    
+    接口Component：使用@Component修饰，存放这些容器的仓库。它是连接Module和依赖注入对象的桥梁。
+    
+    注解@Provides：该容器创建对象的动作。
+    
+    注解@Inject:从容器中取出这个对象的动作。Dagger2会实例化有此注解的类
+
+
+​    
+​    注解@Scope：从容器取出对象的有效期，即生命周期。：Dragger2可以通过自定义注解限定注解作用域。一般说来每一个Component都有一个自己的作用域
+​    
+    注解@Qualifier：用来给@Inject和@Provides贴上关联标签(进行注解)。如果一个对象可以由一个或多个容器的@Provides修饰提供，这时候就需要用Qualifier进行标签关联。当类的类型不足以鉴别一个依赖的时候，我们就可以使用这个注解标示。例如：在Android中，我们会需要不同类型的context，所以我们就可以定义qulifier注解"@perApp"和"@perActivity:，这样当注入一个context的时候，我们就可以告诉Dagger我们想要那哪种类型的context。
+    
+    链接：https://www.jianshu.com/p/b5e65490e7fe
+-----------------------------------
+©著作权归作者所有：来自51CTO
+依赖注入之Dagger2初探
+https://blog.51cto.com/u_10500635/3818223
+
+## 1.Module方式
+
+
+
+    @Module
+    public class LoginModule {
+        @ActivityScope
+        @Provides
+        LoginPresenter getPresenter() {
+            return new LoginPresenter();
+        }
+    
+    }
+
+3.编写Component装载module
+
+
+
+    （1）使用Dagger2单独编写Component装载module
+    
+    @ActivityScope
+    @Component(modules = {LoginModule.class})
+    public interface LoginComponent {
+        void inject(LoginActivity activity);
+    }
+
+（2）使用Dagger-Android 统一生成装载module
+
+
+
+    @ActivityScope
+    @ContributesAndroidInjector(modules = LoginModule.class)
+    abstract/interface LoginActivity contributeSecondActivityInjector();
+
+4.编译工程
+
+     AndroidStudio -> Build -> Make Project
+
+5.进行依赖注入
+
+(1)使用Dagger2,通过Component取出module注入依赖
+
+
+
+    @Override
+    protected void onResume() {
+       super.onResume();
+       DaggerLoginComponent.builder().loginModule(new LoginModule()).build().inject(this);
+    
+    }
+
+(2)使用Dagger-Android在BaseActivity中统一AndroidInjection统一取出module注入依赖
+
+```
+@Override
+protected void onCreate(@Nullable Bundle savedInstanceState) {
+    AndroidInjection.inject(this);  //统一注入
+    super.onCreate(savedInstanceState);
+    setContentView(getLayoutId());
+```
+
+
+
+## 2.Field Inject
+
+1.表明注入的类
+
+```kotlin
+class Menu @Inject construct(){
+    fun cake()
+}
+```
+
+
+
+```java
+class Cook{
+    @Inject
+    Menu menu;
+    
+}
+```
+
