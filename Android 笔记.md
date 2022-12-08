@@ -3078,9 +3078,51 @@ View继承关系图
 
 
 
-# 35.Gilde
+# 35.Gilde 和Fresco
 
-缓存原理
+注意缓存原理，以及动图的加载等等
+
+## 35.1. Gilde
+
+https://github.com/bumptech/glide
+ Google
+
+优点：
+
+1. 除了支持gif和webP图片，还支持缩略图和video（可以将任何的本地视频解码成一张静态图片）；
+2. 生命周期集成（根据Activity或者Fragment的生命周期管理图片加载请求；方便处理bitmap，比如 Paused状态在暂停加载，在Resumed的时候又自动重新加载。）
+3. 有高效的缓存策略，**支持原始图片和结果图片的缓存**，而Picasso和Fresco只会缓存原始尺寸的图片，**由于不需要再次处理图片大小，加载比较快**。
+4. 加载速度在**静态图上是比Fresco快**的，在内存上，javaheap内存开销比Fresco大，但是NATIVE HEAP上不大。
+5. Glide可以很容易的获取Bitmap
+    问题：
+6. 相同URL的不同控件之间无法复用缓存。确认
+7. 在加载gif图时时间比较慢
+8. Glide没有文件缓存
+9. Glide加载的图片没有Picasso那么平滑
+10. Glide只有占位图
+11. 没有缓存进度
+
+默认Bitmap格式是RGB_565  javaHeap —JAVA虚拟机
+ native heap –  C/C++直接操纵的系统堆内存
+
+## 35.2. Fresco
+
+https://github.com/facebook/fresco
+ https://www.fresco-cn.org/
+
+优点：
+
+1. Fresco会**自动复用相同URL的缓存**，两个相同URL同时进行请求Fresco也只会进行一次网络请求，然后第二个进行复用。
+2. Fresco 中设计有一个叫做 **Drawees 模块**，方便地显示loading图，当图片不再显示在屏幕上时，及时地释放内存和空间占用。
+3. 在5.0以下系统，Fresco将图片放到一个**特别的内存区域**。这会使得APP更加流畅，减少因图片内存占用而引发的OOM。在更底层的Native层对OOM进行处理，图片将不再占用App的内存
+4. 支持**渐进式的图片呈现**
+5. 在加载gif图中，Fresco的**java heap基本保持较低平稳状态**，而Glide的java heap基本为Fresco的一倍。但是nativheap中Fresco高出很多
+6. 支持**圆角图**，（下载失败之后点击重新下载，自定义展位图，overlay或者进度条，指定用户按压时的overlay）
+7. 加载上：Fresco 的 image pipeline  设计，允许用户在多方面控制图片的加载：为同一个图片指定不同的远程路径，或者使用已经存在本地缓存中的图片。加载完成回调通知。对于本地图，如有EXIF缩略图，在大图加载完成之前，可先显示缩略图，缩放或者旋转图片，处理已下载的图片
+    问题：
+8. 当Fresco加载384张图片以后，就无法显示出图片了。当activity销毁数值会释放的。
+9. Fresco依赖的库很多
+10. 布局依赖SimpleDraweeView控件
 
 # 36.隐式intent
 
@@ -3523,8 +3565,8 @@ fun main() = runBlocking<Unit> {
 ​    
 ​    注解@Scope：从容器取出对象的有效期，即生命周期。：Dragger2可以通过自定义注解限定注解作用域。一般说来每一个Component都有一个自己的作用域
 ​    
-    注解@Qualifier：用来给@Inject和@Provides贴上关联标签(进行注解)。如果一个对象可以由一个或多个容器的@Provides修饰提供，这时候就需要用Qualifier进行标签关联。当类的类型不足以鉴别一个依赖的时候，我们就可以使用这个注解标示。例如：在Android中，我们会需要不同类型的context，所以我们就可以定义qulifier注解"@perApp"和"@perActivity:，这样当注入一个context的时候，我们就可以告诉Dagger我们想要那哪种类型的context。
-    
+​    注解@Qualifier：用来给@Inject和@Provides贴上关联标签(进行注解)。如果一个对象可以由一个或多个容器的@Provides修饰提供，这时候就需要用Qualifier进行标签关联。当类的类型不足以鉴别一个依赖的时候，我们就可以使用这个注解标示。例如：在Android中，我们会需要不同类型的context，所以我们就可以定义qulifier注解"@perApp"和"@perActivity:，这样当注入一个context的时候，我们就可以告诉Dagger我们想要那哪种类型的context。
+​    
     链接：https://www.jianshu.com/p/b5e65490e7fe
 -----------------------------------
 ©著作权归作者所有：来自51CTO
