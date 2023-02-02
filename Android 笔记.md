@@ -253,6 +253,43 @@ apk是一个压缩包，里面有lib，META-INF，classes.dex，res，resources.
 **res**	资源文件	有**animator,anim,color,drawable,layout,menu，raw等文件夹**
 **resources.arsc**	编译后的二进制资源文件	记录了所有的**应用程序资源目录的信息**，包括每一个资源名称、类型、值、ID以及所配置的维度信息。 这是一个索引文件。
 
+## 6.build优化加速
+
+https://developer.android.com/studio/build/optimize-your-build?hl=zh-cn
+
+## 7.ADB常用命令
+
+——查看ADB版本：adb version
+
+——查看手机设备：adb devices
+
+——查看设备型号：adb shell getprop ro.product.model
+
+——查看电池信息：adb shell dumpsys battery
+
+——查看设备ID：adb shell settings get secure android_id
+
+——查看设备IMEI：adb shell dumpsys iphonesubinfo
+
+——查看Android版本：adb shell getprop ro.build.version.release
+
+——查看手机网络信息：adb shell ifconfig
+
+——查看设备日志：adb logcat
+
+——重启手机设备：adb reboot
+
+——安装一个apk：adb install /path/demo.apk
+
+——卸载一个apk：adb uninstall
+
+——查看系统运行进程：adb shell ps
+
+——查看系统磁盘情况：adb shell ls /path/
+
+——手机设备截屏：adb shell screencap -p /sdcard/aa.png
+https://blog.51cto.com/u_15296378/3087781
+
 # 1. Context
 
 上下文
@@ -288,6 +325,36 @@ onCreate（saveInstanceState）  参数里-> 恢复
 onSaveInstanceState()在生命周期结束前会调用该方法保存状态，
 
 将状态数据以key-value的形式放入到savedInstanceState中 
+
+
+
+onCreat() 不可见不可交互 创建时调用
+
+onStart()是activity界面被显示出来的时候执行的，用户可见，包括有一个activity在他上面，但没有将它完全覆盖，用户可以看到部分activity但不能与它交互    创建时或者从后台重新回到前台时调用
+
+
+
+下面这三个状态是静态（static）的，意味着activity只有在这三个状态下能停留一段时间：
+
+onResume()是该activity与用户能进行交互时被执行，用户可以获得activity的焦点，能够与用户交互。
+
+​            创建或者从被覆盖、后台重新回到前台时被调用 
+
+onPause() 可见不可交互（部分可见），不能接收用户输入也不能执行代码，另一个半透明或者小的activity正挡在前面。
+
+​                        被覆盖到下面或者锁屏时被调用 
+
+onStop() 不可见不可交互失去焦点，activity完全被遮挡，不能被用户看到，activity被认为在background，当Stopped的时候，activity实例的状态信息被保留，但是不能执行任何代码。
+
+​                         退出当前Activity或者跳转到新Activity时被调用 
+
+
+
+onRestart() 从不可见到可见   
+
+onDestory() 销毁activity     退出当前Activity时被调用,调用之后Activity就结束了
+
+![](pic\QQ截图20230112185042.png)
 
 ### 2.2.1 app启动流程
 
@@ -353,7 +420,7 @@ strartctivtiy-》execStartActivities-》ActivtiyThread-》handleLaunchActivity()
 
 （performLanchActivity()-》mInstrumentation。newActivtiy创建对象activtiy—》创建appliction（现有activity再有appliction）-》（調用activtiy.ATTCH（传入了大量参数，instrument等等）**在attch中創建phonewindo，wm**）-》
 
-(mInstrumentation。callActivityOnCreate-》setContentView解析xml構建viewtree))-》
+(mInstrumentation.callActivityOnCreate-》setContentView解析xml構建viewtree))-》
 
 **ActivtiyThread。handlePerfromResume()->进入ui绘制流程，此时decodview才添加到**wm中，开始显示界面
 
@@ -1168,6 +1235,8 @@ activtiy onResume之后才绑定
 Window 有三种类型，分别是**应用 Window**、**子 Window** 和**系统 Window**。应用类 Window 对应一个 Acitivity，子 Window 不能单独存在，需要依附在特定的父 Window 中，比如常见的一些 Dialog 就是一个子 Window。系统 Window是需要声明权限才能创建的 Window，比如 Toast 和系统状态栏都是系统 Window。
 
 ### 7.4.2 wm
+
+WindowManager是Android中一个重要的Service,是全局且唯一的。WindowManager继承自ViewManager。  WindowManager主要用来管理窗口的一些状态、属性、view增加、删除、更新、窗口顺序、消息收集和处理等。Android中真正展示给用户的是window和view，activity所起的作用主要是处理一些逻辑问题，比如生命周期管理及建立窗口。
 
 wm = 接口viewManager，接口windowManager，windowsMangerImpl实现类，，《—windowsMangerGlobal是wmImpl内部的单例，viewrootImpl操作view
 
@@ -1995,7 +2064,7 @@ javaPoet  ：一款可以自动生成Java文件的第三方依赖 ，配置类�
 
 > ```java
 > //annotationProcessor：注解autoservice以及继承自AbstractProessor
-> @AutoService(Processor.class) 
+> @AutoService(Processor.class)//google的Auto库，自动注册解析器，不然要手动新建MEAT-INF下的注册 
 > public xxxProcess extends AbstractProessor{
 >     @Override
 >     public Set<String> getSupportedAnnotationTypes(){
@@ -2145,11 +2214,11 @@ with（），load（），into（）。
 
 **load**（）：加载链接并返回DrawableRequestBuilder，大多数方法  都在这个建造者类中。
 
-**into**（）：
+**into**（）：发起网络请求、缓存数据、解码并显示图片
 
 ①初始化各种**参数**，做好准备工作（**配置网络请求**、基于MVP的各种接口回调）
 
-②使用最原始的HTTPConnect网络连接，读取文件流
+②使用最原始的HTTPConnect网络连接（HttpURLConnection ），读取文件流，可以引入okhttp支持
 
 ③根据文件判断是GIF动图还是Bitmap静态图片
 
@@ -2190,7 +2259,20 @@ public class RequestManagerFragment extends Fragment {
 ## 核心思想
 
 1. **维护一个bitmap对象池（lru**），减少创建的成本。
+
 2. **生命周期的绑定**，with方法，工厂方法。
+
+   with方法：
+
+   A.加载@GlideModule自定义配置
+
+   B.配置线程池，bitmap池，缓存策略
+
+   C.with方法通过传入fragment,activity等创建不可见framgnet，lifecyle监听生命周期，回收资源。或者与application绑定生命周期
+
+   onDestroy时回收资源
+
+
 
 Glide 缓存机制主要分为2种：
 
@@ -2210,6 +2292,12 @@ Glide 缓存机制主要分为2种：
 问题2：简单说一下内存泄漏的场景，如果在一个页面中使用Glide加载了一张图片，图片正在获取中，如果突然关闭页面，这个页面会造成内存泄漏吗？
 
 Glide在加载资源的时候，如果是在Activity，Fragment这一类有生命周期的组件上进行的话，会创建一个透明的RequestManagerFragment加入到FragmentManager之中，感知生命周期，当Activity， Fragment等组件进入不可见，或者已经销毁的时候，Glide会停止加载资源。但是如果是在非生命周期的组件上进行时，**会采用Application的生命周期贯穿整个应用**，所以applicationManager只有在应用程序关闭时终止加载。
+
+问题3:  Glide 是如何加载 GIF 动图的？
+
+首先需要区分加载的图片类型，即网络请求拿到输入流后，获取输入流的前三个字节，若为 GIF 文件头，则返回图片类型为 GIF。
+
+确认为 GIF 动图后，会构建一个 GIF 的解码器（StandardGifDecoder），它可以从 GIF 动图中读取每一帧的数据并转换成 Bitmap，然后使用 Canvas 将 Bitmap 绘制到 ImageView 上，下一帧则利用 Handler 发送一个延迟消息实现连续播放，所有 Bitmap 绘制完成后又会重新循环，所以就实现了加载 GIF 动图的效果。
 
 
 
@@ -2492,9 +2580,104 @@ OKhttp会通过dispatch事件分发器将请求对象发送到RealCall 类，**�
 
 #  21.动画
 
+## 1.native动画
+
 帧动画、补间动画、属性动画 
 
 ![](微信截图_20210314010524.png)
+
+## 2.动画库
+
+https://jfson.github.io/2018/01/08/41-anim/
+
+| 动画库        | Lottie                  | SVGA                                  | Keyframes                                              | Squall                                                    | Spine           |
+| ------------- | ----------------------- | ------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------- | --------------- |
+| 支持平台      | Android/iOS/Web         | Android/iOS/Web                       | Android/iOS                                            | iOS                                                       | Android/iOS/Web |
+| 设计工具支持  | After Effects           | AE & Flash                            | AE                                                     | AE                                                        | AE              |
+| 功能边界      | 所有                    | 部分                                  | 矢量图                                                 | 矢量图                                                    | 大部分          |
+| 导出工具      | 插件                    | 插件                                  | 脚本                                                   | 插件                                                      | 单独的设计工具  |
+| 设计成本      | 需要命名规范            | 无                                    | 需要脚本                                               | 插件                                                      | 单独的设计工具  |
+| 资源包大小zip | 2.6M                    | 767k                                  |                                                        |                                                           | 2M              |
+| 收费          | N                       | N                                     | N                                                      | Y                                                         | Y               |
+| 官网          | [地址](http://svga.io/) | [地址](https://airbnb.design/lottie/) | [地址](https://facebookincubator.github.io/Keyframes/) | [地址](http://www.marcuseckert.com/squall/documentation/) |                 |
+
+- 以上基本排除了Keyframes 和 Squall。
+
+
+
+建议采用SVGA或者Lottie
+
+### SVGA 动画库源码思路
+
+- 一帧一帧
+- 通过设置帧率，来生成一个配置文件，使得每一帧都有一个配置，每一帧都是关键帧，通过帧率去刷每一帧的画面，这个思路跟gif很像，但是通过配置使得动画过程中图片都可以得到复用。性能就提升上来了。并且不用解析高阶插值（二次线性方程，贝塞尔曲线方程）
+
+### Lottie 动画库源码思路
+
+- 一层一层
+- 完全按照设计工具的设计思路来进行还原，将动画脚本导出并解析。动画脚本非常的轻量。
+- 将所有的动画拆成多个层级,每个层级layer都有一个动画配置，播放时解析多个layer的配置，并给每个layer做相应的动画。也达到了图片可以复用。当需要解析高阶插值（二次线性方程，贝塞尔曲线方程）时，性能相对而言差一点。
+
+### SVGA
+
+##### 设计成本
+
+- SVGA目不支持种类：
+
+  - 不支持复杂的矢量形状图层
+  - AE自带的渐变、生成、描边、擦除…
+  - 对设计工具原生动画不友好，对图片动画友好(适合礼物场景)
+
+- 导出工具
+
+  开源
+
+  ##### 开发成本
+
+- 1.优点
+
+  - 资源包小
+  - 测试工具齐全
+  - 三端可用
+  - 回调完整
+  - Protobuf 序列化结构数据格式，序列化的数据体更小，传递效率比xml,json 更高。
+
+- 2.缺点
+
+  - 每个礼物播放时都去新解压，需要改一套缓存策略
+  - svga 用zlib打包(字节流数据压缩程序库)，不方便解压和追踪包内容。
+
+- 4.插入动画头像功能
+
+  - 支持，需定义一套专属的头像配置的协议。
+
+    ### Lottie
+
+    ##### 设计成本
+
+- 1.Lottie 不支持的设计：
+
+  - 基本满足所有种类的矢量动画和图片动画。
+
+  - 有导出插件
+
+    #### 开发成本
+
+- 1.优点
+
+  - 三端可用
+  - 回调完整
+  - 项目已经存在一套缓存逻辑
+  - 当前的库可以满足业务需求，不需要二次开发
+
+- 2.缺点
+
+  - 资源包相较SVGA而言会大一倍多
+  - 图片需要重命名 & 偶先播不出来动效。
+
+- 4.插入动画头像功能
+
+  - 已经支持
 
 # 22.MVC, MVP, MMVM
 
