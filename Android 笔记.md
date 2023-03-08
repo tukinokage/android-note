@@ -10,6 +10,7 @@
 
 Andrid系统的体系结构设计为多层结构，这种结构在给用户提供安全保护的同时还保持了开放平台的灵活性。如下图所示：
 
+
 ![](7048342-ee25f19c86daa94a (2).webp)
 
 Google官方提供的Android系统的四层架构图
@@ -121,6 +122,46 @@ post，commit，同步和异步，都会阻塞
 **Android8.0开始，Android将不支持大部分隐式广播，包括自定义的广播和系统的。**
 
 **需要通过context.regeister的方式注册。**
+
+## 1.1 存储路径
+
+## 一.getCacheDir、getCacheDir
+
+> getCacheDir()方法用于获取/data/data//cache目录 
+>  getFilesDir()方法用于获取/data/data//files目录
+
+## 二.getExternalFilesDir、getExternalCacheDir
+
+  应用程序在运行的过程中如果需要向手机上保存数据，一般是把数据保存在SDcard中的。大部分应用是直接在SDCard的根目录下创建一个文件夹，然后把数据保存在该文件夹中。这样当该应用被卸载后，这些数据还保留在SDCard中，留下了垃圾数据。如果你想让你的应用被卸载后，与该应用相关的数据也清除掉，该怎么办呢？
+
+  通过Context.getExternalFilesDir()方法可以获取到 SDCard/Android/data/你的应用的包名/files/ 目录，一般放一些长时间保存的数据 
+ 通过Context.getExternalCacheDir()方法可以获取到  SDCard/Android/data/你的应用包名/cache/目录，一般存放临时缓存数据.如果使用上面的方法，当你的应用在被用户卸载后，SDCard/Android/data/你的应用的包名/ 这个目录下的所有文件都会被删除，不会留下垃圾信息。
+
+  而且上面二个目录分别对应 设置->应用->应用详情里面的”清除数据“与”清除缓存“选项 
+ 如果要保存下载的内容，就不要放在以上目录下
+
+#### filePath放在哪个文件夹
+
+```java
+Environment.getDataDirectory() = /data
+Environment.getDownloadCacheDirectory() = /cache
+Environment.getExternalStorageDirectory() = /mnt/sdcard
+Environment.getExternalStoragePublicDirectory(“test”) = /mnt/sdcard/test
+Environment.getRootDirectory() = /system
+getPackageCodePath() = /data/app/com.my.app-1.apk
+getPackageResourcePath() = /data/app/com.my.app-1.apk
+getCacheDir() = /data/data/com.my.app/cache
+getDatabasePath(“test”) = /data/data/com.my.app/databases/test
+getDir(“test”, Context.MODE_PRIVATE) = /data/data/com.my.app/app_test
+getExternalCacheDir() = /mnt/sdcard/Android/data/com.my.app/cache
+getExternalFilesDir(“test”) = /mnt/sdcard/Android/data/com.my.app/files/test
+getExternalFilesDir(null) = /mnt/sdcard/Android/data/com.my.app/files
+getFilesDir() = /data/data/com.my.app/files
+```
+
+应用包下的存储都不需要存储权限申请
+
+
 
 ## 2.java和android的字节
 
@@ -428,7 +469,9 @@ strartctivtiy-》execStartActivities-》ActivtiyThread-》handleLaunchActivity()
 
 （2）子线程setTextview不一定报错，如果在on'Create中，不会报错，但是等到resume之后就会报错
 
-![](\pic\QQ图片20220524183505.png)
+![](pic\QQ图片20220524183505.png)
+
+![](pic\4100513-11d4f617465558e7.webp)
 
 ## 2.3 APP重启
 
@@ -537,24 +580,36 @@ public class MyService extends Service{
 
 (4)Service通常位于后台运行，它一般不需要与用户交互，因此Service组件没有图形用户界面。Service组件需要继承Service基类。Service组件通常用于为其他组件提供后台服务或监控其他组件的运行状态。
 
-(5)onStartCommand方法返回有4种 
+**(5)onStartCommand方法返回有4种** 
  \- START_STICKY 
  \- START_NOT_STICKY 
  \- START_REDELIVER_INTENT 
  \- START_STICKY_COMPATIBILITY 
 
-START_STICKY：如果service进程被kill掉，保留service的状态为开始状态，但不保留递送的intent对象。随后系统会尝试重新创建service，由于服务状态为开始状态，所以创建服务后一定会调用onStartCommand(Intent,int,int)方法。如果在此期间没有任何启动命令被传递到service，那么参数Intent将为null。
+**START_STICKY**：如果service进程被kill掉，保留service的状态为开始状态，但不保留递送的intent对象。随后系统会尝试重新创建service，由于服务状态为开始状态，所以创建服务后一定会调用onStartCommand(Intent,int,int)方法。如果在此期间没有任何启动命令被传递到service，那么参数Intent将为null。
 
-START_NOT_STICKY：“非粘性的”。使用这个返回值时，如果在执行完onStartCommand后，服务被异常kill掉，系统不会自动重启该服务。
+**START_NOT_STICKY**：“非粘性的”。使用这个返回值时，如果在执行完onStartCommand后，服务被异常kill掉，系统不会自动重启该服务。
 
-START_REDELIVER_INTENT：重传Intent。使用这个返回值时，如果在执行完onStartCommand后，服务被异常kill掉，系统会自动重启该服务，并将Intent的值传入。
+**START_REDELIVER_INTENT**：重传Intent。使用这个返回值时，如果在执行完onStartCommand后，服务被异常kill掉，系统会自动重启该服务，并将Intent的值传入。
 
-START_STICKY_COMPATIBILITY：START_STICKY的兼容版本，但不保证服务被kill后一定能重启。
+**START_STICKY_COMPATIBILITY**：START_STICKY的兼容版本，但不保证服务被kill后一定能重启。
 
 
 
 作者：proud2008
 链接：https://www.jianshu.com/p/fd49a83bce8d
+
+
+
+引出一下注意点：
+
+1. 无论多少次的 startService 又 bindService，Service 只被创建一次，Service 的 onCreate 的方法只会被调用一次。
+
+2. 多次调用 startService 的话，service 会多次调用  onStartCommand  方法。多次调用 stopService 的话，service 只会调用一次 onDestroyed 方法。 
+
+3. 多次调用 bindService 的话，service 只会调用一次 onBind 方法。一个 Service 可以被多个客户进行绑定，只有所有的绑定对象都执行了  unbindService （）方法后（ 或者 Activity 被 finish 的时候绑定会自动解除 ）该 Service 才会销毁。一个客户多次调用 unbindService 的话会抛出异常。
+
+4. 如果同时（多次）调用了 startService 和 bindService，要所有绑定都解除和调用一次 stopService () Service 才会销毁。
 
 ## 4.**IntentService** （新版本已丢弃）
 
@@ -930,6 +985,12 @@ window是个抽象概念，其具体实现类是phonewindow**，activity和dialo
 
 
 
+### 7.1.4 dialog和dialogFragmnet
+
+[]: https://juejin.cn/post/6854573211854733320	"介绍和比对"
+
+
+
 ## 7.2 View绘制流程
 
 onResume中无法正常获取宽高，此时还没viewroot.addview, resume之后才会触发绘制流程
@@ -981,13 +1042,26 @@ viewTree的子view调用invalidate（），其实是调用viewGroup的invalidate
 
 Webvie建议使用硬件加速，不然又加载问题，有了也可能会出现其他问题
 
-仅用于重绘
+**仅用于重绘**
+
+
+
+postInvalidate是在非UI线程中调用，invalidate则是在UI线程中调用。
 
 #### ***requestlayout：***
 
 会调用父view requestlayout
 
 requestLayout 会触发Measure、Layout过程，如果尺寸发生改变，则会调用invalidate
+
+requestLayout会直接递归调用父窗口的requestLayout，直到ViewRootImpl,然后触发peformTraversals，由于mLayoutRequested为true，**会导致onMeasure和onLayout被调用。不一定会触发OnDraw**。requestLayout触发onDraw可能是因为在在layout过程中发现l,t,r,b和以前不一样，那就会触发一次invalidate，所以触发了onDraw，也可能是因为别的原因导致mDirty非空（比如在跑动画）
+
+
+链接：https://www.jianshu.com/p/5ec0f278e0a3
+
+![](pic/16925694-c76eba5f99c1dfae.webp)
+
+一般来说，只要刷新的时候就调用invalidate，需要重新measure就调用requestLayout，后面再跟个invalidate（为了保证重绘），这是我个人的理解。
 
 ### 7.2.1 MeasureSpec
 
@@ -3837,5 +3911,122 @@ class Cook{
     Menu menu;
     
 }
+```
+
+# 50.自动化测试
+
+## 1.MonkeyTest
+
+## 2.Mockito
+
+## 3.Espresso
+
+# 51.跨进程通信
+
+1.IBINDER
+
+2.广播
+
+3.SOCKET
+
+4.AIDL
+
+AIDL机制Binder机制图。
+
+![](pic\aidl.webp)
+
+在实现 AIDL 接口时，您应注意遵守以下规则： 
+
+- 由于无法保证在主线程上执行传入调用，因此您一开始便需做好多线程处理的准备，并对您的服务进行适当构建，使其达到线程安全的标准。
+- **默认情况下，RPC 调用是同步调用**。如果您知道服务完成请求的时间不止几毫秒，则不应从 Activity  的主线程调用该服务，因为这可能会使应用挂起（Android 可能会显示“Application is Not Responding”对话框）—  通常，您应从客户端内的单独线程调用服务。 
+- 您引发的任何异常都不会回传给调用方。
+
+# 52.断点续传
+
+## Http 怎么支持断点续传的？
+
+Http 1.1 协议中默认支持获取文件的部分内容，这其中主要是通过头部的两个参数：Range 和 Content Range 来实现的。客户端发请求时对应的是 Range ，服务器端响应时对应的是 Content-Range。
+
+客户端想要获取文件的部分内容，那么它就需要请求头部中的 Range 参数中指定获取内容的起始字节的位置和终止字节的位置，它的格式一般为：
+
+```perl
+Range:(unit=first byte pos)-[last byte pos]
+```
+
+例如：
+
+```ini
+Range: bytes=0-499      表示第 0-499 字节范围的内容 
+Range: bytes=500-999    表示第 500-999 字节范围的内容 
+Range: bytes=-500       表示最后 500 字节的内容 
+Range: bytes=500-       表示从第 500 字节开始到文件结束部分的内容 
+Range: bytes=0-0,-1     表示第一个和最后一个字节 
+Range: bytes=500-600,601-999 同时指定几个范围
+```
+
+### Content Range
+
+在收到客户端中携带 Range 的请求后，服务器会在响应的头部中添加 Content Range 参数，返回可接受的文件字节范围及其文件的总大小。它的格式如下：
+
+```perl
+Content-Range: bytes (unit first byte pos) - [last byte pos]/[entity legth]
+
+```
+
+例如：
+
+```less
+Content-Range: bytes 0-499/22400    // 0－499 是指当前发送的数据的范围，而 22400 则是文件的总大小。
+```
+
+#### 使用断点续传和不使用断点续传的响应内容区别
+
+- 不使用断点续传
+
+```rust
+HTTP/1.1 200 Ok
+```
+
+- 使用断点续传
+
+```css
+HTTP/1.1 206 Partial Content
+```
+
+## 处理请求资源发生改变的问题
+
+在现实的场景中，服务器中的文件是会有发生变化的情况的，那么我们发起续传的请求肯定是失败的，那么为了处理这种服务器文件资源发生改变的问题，在 RFC2616 中定义了 **Last-Modified** 和  **Etag** 来判断续传文件资源是否发生改变。
+
+### Last-Modified & If-Modified-Since（文件最后修改时间）
+
+- **Last-Modified**：记录 Http 页面最后修改时间的 Http 头部参数，Last-Modified 是由服务端发送给客户端的
+- **If-Modified-Since**：记录 Http 页面最后修改时间的 Http 头部参数，If-Modified-Since 是有客户端发送给服务端的
+- 验证过程
+  - step 1：客户端缓存从服务端获取的页面
+  - step 1：客户端访问相同页面时，客户端将服务器发送过来的  Last-Modified 通过 If-Modified-Since 发送给服务器
+  - step 2：服务器通过客户端发送过来的 If-Modified-Since 进行判断客户端当前的缓存的页面是否为最新的
+    - **如果不是最新的，那么就发送最新的页面给客户端**
+    - **如果是最新的，那么就发送 304 告诉客户端它本地缓存的页面是最新的**
+
+## OkHttp 断点下载
+
+### 断点下载思路
+
+- step 1：判断检查本地是否有下载文件，若存在，则获取已下载的文件大小 downloadLength，若不存在，那么本地已下载文件的长度为 0
+- step 2：获取将要下载的文件总大小（HTTP 响应头部的 content-Length)
+- step 3：比对已下载文件大小和将要下载的文件总大小（contentLength），判断要下载的长度
+- step 4：再即将发起下载请求的 HTTP 头部中添加即将下载的文件大小范围（Range: bytes = downloadLength - contentLength)
+
+
+
+### 主要要点
+
+
+
+```java
+  /** HTTP请求是有一个Header的，里面有个Range属性是定义下载区域的，它接收的值是一个区间范围，        
+  * 比如：Range:bytes=0-10000。这样我们就可以按照一定的规则，将一个大文件拆分为若干很小的部分，        
+  * 然后分批次的下载，每个小块下载完成之后，再合并到文件中；这样即使下载中断了，重新下载时，         
+  * 也可以通过文件的字节长度来判断下载的起始点，然后重启断点续传的过程，直到最后完成下载过程。   */
 ```
 
