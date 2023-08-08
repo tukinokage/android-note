@@ -130,9 +130,11 @@ post，commit，同步和异步，都会阻塞
 ### 二.getExternalFilesDir、getExternalCacheDir(android10之后的方式)
 
 
+
+
 应用程序在运行的过程中如果需要向手机上保存数据，一般是把数据保存在SDcard中的。大部分应用是直接在SDCard的根目录下创建一个文件夹，然后把数据保存在该文件夹中。这样当该应用被卸载后，这些数据还保留在SDCard中，留下了垃圾数据。如果你想让你的应用被卸后，与该应用相关的数据也清除掉，该怎么办呢？
 
-通过Context.getExternalFilesDir()方法可以获取到 SDCard/Android/data/你的应用的包名/files/ 目录，一般放一些长时间保存的数据
+- 通过Context.getExternalFilesDir()方法可以获取到 SDCard/Android/data/你的应用的包名/files/ 目录，一般放一些长时间保存的数据
 通过Context.getExternalCacheDir()方法可以获取到  SDCard/Android/data/你的应用包名/cache/目录，一般存放临时缓存数据.如果使用上面的方法，当你的应用在被用户卸载后，SDCard/Android/data/你的应用的包名/ 这个目录下的所有文件都会被删除，不会留下垃圾信息。
 
 
@@ -143,12 +145,13 @@ post，commit，同步和异步，都会阻塞
 
 ```java
 Environment.getDataDirectory() = /data
+
 Environment.getDownloadCacheDirectory() = /cache(android10 api29之前)
-Environment.getExternalStorageDirectory() = /mnt/sdcard(android10 api29之前)
+Environment.getExternalStoragePublicDirectory() = /mnt/sdcard(android10 api29之前)
 Environment.getExternalStoragePublicDirectory(“test”) = /mnt/sdcard/test(android10 api29之前)
 
 /**
-在使用Android SDK 版本超过29编译的时候，Android Studio会提示[Environment](https://so.csdn.net/so/search?q=Environment&spm=1001.2101.3001.7020).getExternalStorageDirectory()过时了，要用Context#getExternalFilesDir代替，Android Q以后Environment.getExternalStorageDirectory()返回的路径可能无法直接访问，所以改成了Context#getExternalFilesDir
+在使用Android SDK 版本超过29编译的时候，Android Studio会提示Environment.getExternalStorageDirectory()过时了，要用Context#getExternalFilesDir代替，Android Q以后Environment.getExternalStorageDirectory()返回的路径可能无法直接访问，所以改成了Context#getExternalFilesDir
 **/
 
 Environment.getRootDirectory() = /system
@@ -165,6 +168,15 @@ getFilesDir() = /data/data/com.my.app/files
 ```
 
 应用包下的存储都不需要存储权限申请
+
+
+### 1.1.3 分区存储
+
+Android 10 /11之后，Google首次引入了分区存储，将公共区域划分成了不同的集合，并且在媒体文件和其他文档之间建立了清楚的分割。**经过划分之后应用不可以随意访问外部存储区中的文件，而只能访问媒体文件**。
+ * 1.应用私有目录：存储应用私有数据，外部存储应用私有目录对应Android/data/packagename，内部存储应用私有目录对应data/data/packagename；
+ * 2.共享目录：**存储其他应用可访问文件**， 包含媒体文件、文档文件以及其他文件，对应设备DCIM、Pictures、Alarms, Music, Notifications,Podcasts, Ringtones、Movies、Download等目录。
+ * Android 11 (API 级别 30) 进一步增强了平台功能，为外部存储中的应用和用户数据提供了更好的保护。
+ * 从 Android 11 开始，使用 分区存储模式 的应用即使拥有 READ_EXTERNAL_STORAGE 权限，**也无法再访问 外部存储 中的任何其他应用的 专属目录（Android\data） 中的文件**，受此影响应用间分享就需要使用通过应用间共享文件**适配的方式（ FileProvider进行分享），通过FileProvider，就允许第三方应用读取你的应用所分享的文件，而不会受到分区存储的限制**。
 
 ## 2.java和android的字节
 
@@ -224,7 +236,7 @@ android数据类型所占字节数：
 
 - ### 7.0
 
-分屏
+分屏 分享私有要使用fileprovider
 
 - ### 8.0多显示器
 
@@ -235,10 +247,26 @@ workmanager和schedulerjob进行轮询。
 
 - ### 9.0支持刘海屏
 
+
 - ### 10.0 
 
-	5G和可折叠
-	对储存的更新：分区储存
+10.0  android10以上禁止获取deviceId，可以通过获取AndroidID(无需权限，缺点时重置系统会重置)
+
+```
+private fun getAndroidID() {
+    val androidID = Settings.System.getString(
+        contentResolver, Settings.Secure.ANDROID_ID
+    )
+    Log.i(TAG, "AndroidID为:$androidID")
+}
+
+```
+
+
+
+ 5G和可折叠
+
+- 对储存的更新：分区储存
 
 	**旧版本：**
 	**获取外部存储目录**
@@ -277,6 +305,8 @@ Android 10 之前的文件系统 , 内存分为两块 , 应用私有目录 , 和
 
 - ### 11 
 	-支持一次性权限
+
+强制分区存储
 
 https://www.jianshu.com/p/7875ac6139a3
 
@@ -388,6 +418,14 @@ https://developer.android.com/studio/build/optimize-your-build?hl=zh-cn
 
 ——手机设备截屏：adb shell screencap -p /sdcard/aa.png
 https://blog.51cto.com/u_15296378/3087781
+
+## 8. 唯一标识符
+
+AndroidID：根据硬件信息系统信息和操作系统版本号等等。Android ID是在设备首次启动时生成的。获取无需权限。
+
+IMEI,MEID（deviceid一般是）: 和手机支持的网络制式相关，注意：Android10以上禁止获取IMEI，因为需要READ_PRIVILEGED_PHONE_STATE权限，而该权限只能是系统应用才可以获取到。
+
+OAID(推荐):移动安全联盟（中国通讯院）和各个国内厂商推出的设备识别字段。不需要权限，引入lib支持，仅安卓10以上。
 
 # 1. Context
 
@@ -783,6 +821,7 @@ onStopJob()返回true，即可设置在被强制停止后可以再度启动。�
 ***JobService***   
 
 适合不需要常驻后台，不需要立即执行，在某种条件下触发，执行简单任务的场景。比如联系人信息变化后的快捷方式的更新，定期的更新电话程序的联系人信息，壁纸更改后去从壁纸提取颜色的后台任务。
+## 7. WorkManager
 
 # 4.Android 运行时权限要点
 
@@ -1038,7 +1077,7 @@ window是个抽象概念，其具体实现类是phonewindow**，activity和dialo
 
 
 
-### 7.1.4 dialog和dialogFragmnet
+###  7.1.4 dialog和dialogFragmnet
 
 []: https://juejin.cn/post/6854573211854733320	"介绍和比对"
 
@@ -1924,7 +1963,7 @@ chain.proceed中调用**RealInterceptorChain**的**proceed**方法开启链式�
           + " must call proceed() exactly once");
     }
 
-    // Confirm that the intercepted response isn't null.
+    // Confirm that the intercepted response isnt null.
     if (response == null) {
       throw new NullPointerException("interceptor " + interceptor + " returned null");
     }
@@ -1936,8 +1975,7 @@ chain.proceed中调用**RealInterceptorChain**的**proceed**方法开启链式�
 
     return response;
   }
-
-```
+  ```
 
 
 
@@ -2082,7 +2120,7 @@ public static Unbinder bind(@NonNull Activity target) {
 
 `sourceView`代表当前界面的顶级父 View，是一个`FrameLayout`，继续看`createBinding()`方法：
 
-```
+```java
 private static Unbinder createBinding(@NonNull Object target, @NonNull View source) {
     Class< ?> targetClass = target.getClass();
     if (debug) Log.d(TAG, "Looking up binding for " + targetClass.getName());
@@ -2450,6 +2488,8 @@ Glide在加载资源的时候，如果是在Activity，Fragment这一类有生�
 
  **android异步消息机制架构**，重中之重
 
+handler是消息处理器，用于接收和发送message，Message是消息本体，messagequeue是消息队列，Looper是驱动从messageQueue轮询获取message。每个Looper拥有一个messagequue。
+
 ## 18.1 Looper
 
 looper其实管理message queue的类。一个线程只有一个looper。主线程拥有隐式的loop， activityThread main中loop。LOOP（）。
@@ -2457,6 +2497,8 @@ looper其实管理message queue的类。一个线程只有一个looper。主线�
 消息队列中是无限循环获取message，如果没有信息就会进入阻塞状态。
 
 **prepare**：创建looper对象，通过threadlocal（虽然是全局，但只能将存储到当前线程的数据取出）设置到当前线程。
+
+threadlocal：数组键值对。t=key，t+1=value
 
 **loop**：开启消息循环，从消息队列中不断取出
 
@@ -2537,6 +2579,15 @@ HandlerThread有**自己的内部Looper对象**，可以进行looper循环；
 创建HandlerThread后必须先调用HandlerThread.start()方法，Thread会先调用run方法，创建Looper对象。
 
 ## **18.5 消息屏障**
+
+
+
+## 18.6 View.post
+
+1. 更新 UI 操作
+2. 获取 View 的实际宽高
+
+
 
 
 #  19.ARoute和模块化
@@ -2931,7 +2982,53 @@ B.LiveData 的作用是在使得数据能具有生命周期感知能力，在 Ac
 
 总结自： https://juejin.cn/post/6844903814173212680
 
+##  “状态” 与 “事件”
+在 MVVM 架构中，我们通常使用 LiveData 或者 StateFlow 实现 ViewModel 与 View 之间的数据通信，它们具备的响应式机制非常适合用来向 UI 侧发送更新后的状态（State），但是同样用它们来发送事件（Event），当做 EventBus 使用就不妥了
+虽然“状态”和“事件”都可以通过响应式的方式通知到 UI 侧，但是它们的消费场景不同：
 
+    状态（State）：是需要 UI 长久呈现的内容，在新的状态到来之前呈现的内容保持不变。比如显示一个Loading框或是显示一组请求的数据集。
+    事件（Event）：是需要 UI 即时执行的动作，是一个短期行为。比如显示一个 Toast 、 SnackBar，或者完成一次页面导航等。
+
+我们从覆盖性、时效性、幂等性等三个维度列举状态和事件的具体区别
+	
+
+状态
+	
+
+事件
+
+覆盖性
+	
+
+新状态会覆盖旧状态，如果短时间内发生多次状态更新，可以抛弃中间态只保留最新状态即可。这也是为什么 LiveData 连续 postValue 时会出现数据丢失。
+	
+
+新事件不应该覆盖旧事件，订阅者按照发送顺序接收到所有事件，中间的事件不能遗漏。
+
+时效性
+	
+
+最新状态是需要长久保持的，可以被时刻访问到，因此状态一般是“粘性的”，在新的订阅出现时为其发送最新状态。
+	
+
+事件只能被消费一次，消费后应该丢弃。因此事件一般不是“粘性”的，避免多次消费。
+
+幂等性
+	
+
+状态是幂等的，唯一状态决定唯一UI，同样的状态无需响应多次。因此 StateFlow 在 setValue 时会对新旧数据进行比较，避免重复发送。
+	
+
+订阅者需要对发送的每个事件进行消费，即使是同一类事件发送多次。
+
+
+Jetpack MVVM 七宗罪之四： 使用 LiveData/StateFlow 发送 Events
+https://blog.51cto.com/u_15200109/4935605
+鉴于事件与状态的诸多差异，如果直接使用 LiveData 或 StateFlow 发送事件，会出现不符合预期的行为。其中最常见的可能就是所谓“数据倒灌”问题。
+
+    我平常不太喜欢使用 “数据倒灌” 这个词，主要是“倒”这个字与单向数据流思想相违背，容易引起误解，我猜测词汇发明者更多的是想用它强调一种“被动”接收吧。
+
+“数据倒灌”问题的发生源于 LiveData 的 "粘性" 设计，同一个订阅者每次订阅 LiveData 都会收到最近的一个事件，因为事件应该具有“时效性”，对于已消费过的事件我们不希望再次响应。
 
 ## MVI
 
@@ -3532,6 +3629,10 @@ try {
 ### 37.1.2 apk签名
 
 签名实际上是对app加上开发者的签名，证明app与开发者的关系，实际上就是使用了签名keystore文件，签名使用私钥对内容进行加密，签后的apk携带公钥，安装时去取出公钥，对apk进行验证，查看是否使用正确的私钥加密。
+
+### 37.1.3 apk加壳
+
+![](D:\shayue\笔记\pic\apk_add.png)
 
 ## 37.2 KeyStore
 
