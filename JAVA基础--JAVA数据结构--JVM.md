@@ -381,7 +381,7 @@ submit可以获取返回值furture对象。
 
 **5. 死亡状态(Dead):** 线程执行完了或者因异常退出了run()方法，该线程结束生命周期。
 
-
+### 从虚拟机内核角度
 
 # 3. final finally finalize
 

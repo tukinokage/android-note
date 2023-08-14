@@ -1,3 +1,7 @@
+## 完整路线指导
+
+[音视频完整路线](音视频完整路线.png)
+
 ## 基本认识
 ### 音／视频流
 
@@ -45,20 +49,106 @@
 - 4）视觉冗余：人的视觉系统对某些细节不敏感
 - 5）知识冗余：规律性的结构可由先验知识和背景知识得到
 
-## 1.编码
+## 1.解码、编码
+### 简介
+
+- -编码：编码就是将原始音频数据也就是PCM压缩的一个过程；或者是将原始的视频数据RGB或YUV压缩的一个过程。
+
+- 解码：解码就是编码一个逆过程，比如将编码后的数据AAC解码成PCM给播放器播放；或者将编码后的H264数据解码成YUV或RGB给播放器渲染的过程
+
+- 编解码又分为硬件编解码和软件编解码：
+
+	- 软编软解码：使用CPU进行编码，一般是执行代码运行算法指令编码。消耗功耗大，cpu消耗性能大。兼容性强，编码可操作空间大。（压缩，剪切等等）
+	- 硬编硬解码：使用非CPU进行编码，如显卡GPU、专用的DSP、FPGA、ASIC芯片等，一般是算法已经固化在芯片中。功耗低，可控性差，依赖于硬件底层实现，兼容性差，不同厂商的解码方案可能不一致。
+	--------------------------------------------------------------------------------------------------
+	- 硬解码效率非常高，这样不但能够减轻CPU的负担，还有着低功耗，发热少等特点。但是，由于硬解码起步比较晚，软件和驱动对他的支持度很低，往往会出现兼容性不好的问题。此外，硬解码的滤镜、字幕、画质方面都做的不够理想。
+
+软解码需要对大量的视频信息进行运算，所以对CPU处理性能的要求非常高。巨大的运算量就会造成转换效率低，发热量高等问题。不过，软解码不需要过多的硬件支持，兼容性非常高。而且软解码拥有丰富的滤镜，字幕，画面处理优化等效果，只有你CPU够强悍，就能够实现更加出色的画面效果
+
+- 通常我们**把解封装以后得视频流叫做裸流**，即符合H264，H265，AV1等视频编码标准编码的码流。
+
+安卓mediaFromat下的支持解码（此处仅展示部分）
+```java
+public static final String MIMETYPE_VIDEO_AV1 = "video/av01";  
+public static final String MIMETYPE_VIDEO_AVC = "video/avc";  //h264不同组织的命名不同罢了
+public static final String MIMETYPE_VIDEO_HEVC = "video/hevc";  //h265
+public static final String MIMETYPE_VIDEO_MPEG4 = "video/mp4v-es";  
+public static final String MIMETYPE_VIDEO_H263 = "video/3gpp";  
+public static final String MIMETYPE_VIDEO_MPEG2 = "video/mpeg2";  
+public static final String MIMETYPE_VIDEO_RAW = "video/raw";
+```
+### NALu
+编码单元
+### YUV和RGB
+YUV是指亮度参数和色度参量分开表示的像素格式，其中“Y”表示明亮度（Luminance或Luma），也就是灰度值；而“U”和“V”表示的则是色度（Chrominance或Chrima），作用是描述色彩及饱和度,用于指定像素的颜色。
+Y：亮度分量，表示物理线性空间亮度。
+U：蓝色投影。
+V：红色投影。
+#### 为什么要有YUV这种数据出来？
 ### H264
+H.264/AVC 是属于MPEG-4的一种编码格式。x264是H264的一种编码实现的函数库，是一种软编。
+#### 码流功能的角度
+无论是解析视频文件或这通过网络传输, 其实都是一串字节序列. H264码流就是按照一定的规则组织排列的字节串.
+
+从码流功能的角度可以分为两层:NAL层和VCL层
+
+- **NAL 网络提取层**:负责以网络所要求的恰当的方式对数据进行打包和传送
+- **VCL 视频编码层**：包括核心压缩引擎和块，宏块和片的语法级别定义，设计目标是尽可能地独立于网络进行高效的编码
+
+  
+- **SODB:(String of Data Bits,原始数据比特流)** ,长度不一定是8的倍数.它是由VCL层产生的.因为非8的倍数所以处理比较麻烦.
+- **RBSP:(Raw Byte Sequence Payload,SODB+trailing bits)** .算法是在SODB最后一位补1.不按字节对齐补0. 如果补齐0,不知道在哪里结束.所以补1.如果不够8位则按位补0.
+- **EBSP:(Encapsulate Byte Sequence Payload)** .就是生成压缩流之后,我们还要在每个帧之前加一个起始位.起始位一般是十六进制的0001.但是在整个编码后的数据里,可能会出来连续的2个0x00.那这样就与起始位产生了冲突.那怎么处理了? H264规范里说明如果处理2个连续的0x00,就额外增加一个0x03.这样就能预防压缩后的数据与起始位产生冲突.
+- **NALU: NAL Header(1B)+EBSP**.NALU就是在EBSP的基础上加1B的网络头.
+
+
+
+一个NALU由 固定长度的Header和RBSP组成
+
+![[20200702230943756.png]]
+
+从图一中我们看到SPS,PPS。这是符合H.264码流中第一个NALU是SPS，第二个NALU是PPS。SPS和PPS包含了
+
+初始化H.264解码器所需要的信息参数。
+
+- SPS 序列参数集：包含的是针对一连续编码视频序列的参数，如标识符seq_parameter_set_id、帧数及POC的约束、参考帧数目、解码图像尺寸和帧场编码模式选择标识等。
+
+- PPS 图像参数集：对应的是一个序列中某一副图像或者某几幅图像，参数如标识符pic_parameter_set_id、可选的seq_parameter_set_id、熵编码模式选择标识、片组数目、初始量化参数和去方块滤波系数调整标识等。
+
+通过以上可知，如果H.264码流中无PPS或者SPS的话，解码器是无法解析码流数据，自然是无法播放。
+
+
+![[v2-cf08e64260030a99c2a98306b88cb328_720w.png]]
 #### 1.2. I帧数 B帧 P帧
 
 
 H264是目前流行的一种视频编码算法，它定义了三种帧：
-- 完整编码的I帧，也称作关键帧
-- 参考I帧生成只包含差异的P帧
-- 参考前后帧编码的B帧。
+- I帧：帧内编码帧，大多数情况下I帧就是关键帧，就是一个完整帧，无需任何辅助就能独立完整显示的画面。
+
+- B帧：帧是双向预测帧。参考前后图像帧编码生成。需要前面的 I/P 帧或者后面的 P 帧来协助形成一个画面。
+
+- P帧：前向预测编码帧。是一个非完整帧，通过参考前面的I帧或P帧生成画面。
+
+#### 解码流程
+![[20191209142105513.webp]]
+### H265
+
+
+
+### H264/H265有什么区别？
+
+
 ### Non-B-Frame技术(无b帧技术)
 
-## 解码器
-### 1.mediacodec
-### 2.ffmpeg
+
+### **视频解码器/解码器**
+#### 1.MediaCodec
+MediaCodec是Android平台提供的一个底层的音视频编解码框架，它是安卓底层多媒体基础框架的重要组成部分。它经常和 MediaExtractor, MediaSync, MediaMuxer, MediaCrypto, MediaDrm, Image, Surface, AudioTrack一起使用。解码的作用，就是将视频/音频压缩编码数据，解码成为非压缩的视频/音频原始数据。反之，编码的作用，就是将非压缩的视频/音频原始数据转为视频/音频压缩编码数据。
+**一般默认是硬解码，但是需要硬件支持，如果没有就只能软解**
+
+编码大致流程：设置编码参数---创建编码器----创建混合器MediaMuxer（封装成盒子（mp4等等））----开始编码
+#### 2.FFmpeg
+
 |   |   |
 |---|---|
 |avcodec|音视频编解码核心库|
@@ -93,18 +183,13 @@ H264是目前流行的一种视频编码算法，它定义了三种帧：
 Rematrixing：是改变频道布局，例如从立体声到单声道的过程。当输入通道不能被映射到输出数据流，该方法是有损耗的，因为它涉及到不同的增益因子和混合。  
 其他各种音频转换（如拉伸和填充）通过专用的选项启用。
 
-  
-  
-作者：默默_大魔王  
+
 链接：https://www.jianshu.com/p/9e97bb5b1ce5  
-来源：简书  
-著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
 
-
-#### 2.1 ffmpeg解码
+##### 2.1 FFmpeg解码
 
 ![[559adc64edfa49809396ba6258df8bac~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.webp]]
-#### 2.1 在Android中使用ffmpeg播放视频
+##### 2.1 在Android中使用ffmpeg播放视频
 ![[10190436-0bd5b374ce97f20e.webp]]
 主要流程是下面几点
 
@@ -113,10 +198,79 @@ Rematrixing：是改变频道布局，例如从立体声到单声道的过程。
 - 将显示数据写到ANativeWindow的buffer中，注意需要将显示的数据格式转换成ANativeWindow设置的数据格式
 - 释放ANativeWindow
 
-### 3.ijkplayer
+
+##### 3 支持Mediacodec
+FFmpeg 在 3.1 版本之后支持调用平台硬件进行解码，也就是说可以通过 FFmpeg 的 C 代码去调用 Android 上的 MediaCodec 。
+在官网上有对应说明，地址如下：
+​https://trac.ffmpeg.org/wiki/HWAccelIntro​​
+它的编译有很多开关选项，要确保打开了 mediacodec 相关的选项，具体如下：
+--enable-mediacodec
+--enable-decoder=h264_mediacodec
+--enable-decoder=hevc_mediacodec
+--enable-decoder=mpeg4_mediacodec
+--enable-hwaccel=h264_mediacodec
+
+可以看出 mediacodec 支持的编码格式有 h264、hevc、mpeg4 三种可选，不在范围内的就还是考虑软解吧。
+
+##### 4 FFmpeg+OpenGL ES/OpenSL ES
+
+#### 如何给 FFmpeg 添加自定义 Codec 编码器？
+
+简单概况一下：
+
+- 首先通过 avformat_open_input 方法打开文件，得到 AVFormatContext 。
+ - 然后通过 avformat_find_stream_info 查找文件的视频流信息。
+- 得到文件相关信息和视频流信息，主要还是为了得到编码格式信息，然后好找到对应的解码器。也可以通过 avcodec_find_decoder_by_name 方法直接找具体的解码器。
+- 有了解码器就可以创建解码上下文 AVCodecContext，并通过 avcodec_open2 方法打开解码器
+- 然后通过 av_read_frame 读取文件的内容好进行下一步的解码。
+- 接下来就是熟悉的 avcodec_send_packet 发送给解码器，avcodec_receive_frame 从解码器取回解码后的数据。
+
+附1：FFmpeg 调用 Android MediaCodec 进行硬解码（附源码）
+https://blog.51cto.com/u_12127193/5739432
+附2： FFmpeg 调用 MediaCodec 硬解码到 Surface 上
+https://blog.51cto.com/u_12127193/5739376?articleABtest=0
+
+问题1：有了上层MediaCodec，为什么还要native层解决方案？
+回答：由于我们的数据流向是编码前YV12/NV21/NV12/I420/RGB24/RGBA32/RGB565等数据类型，底层统一处理后，实现H264、HEVC的编码，减少了上下层之间的交互，效率更高，
+
+
+### 音频解码/编码
+
+基础知识并使用AudioTrack、OpenSL ES渲染PCM数据
+
+#### PCM
+PCM是声音从模拟信号转为数字信号的技术。
+通常所说的音频的裸数据就是 PCM (Pulse Code Modulation) 数据。
+描述一段 PCM 数据一般需要以下几个概念：
+- 量化格式(sampleFormat)
+- 采样率（sampleRate）
+- 声道数 (channel) 
+以 CD 的音质为例：量化格式为 16 bit （2 byte）,采样率 44100 ，声道数为 2 ，这些信息就描述了 CD 的音质。而对于声音的格式，还有一个概念用来描述它的大小，称为数据比特率，即 1s 时间内的比特数目，它用于衡量音频数据单位时间内的容量大小。而对于 CD 音质的数据，比特率为多少呢？ 计算如下:
+
+	44100 * 16 * 2 = 1378.125 kbps
+
+那么在一分钟里，这类 CD 音质的数据需要占据多大的存储空间呢？计算如下:
+
+	1378.125 * 60 / 8 / 1024 = 10.09 MB
+## 4. EXOPlayer
+### 1 ExoPlayer优缺点  
+ExoPlayer是谷歌开源的一个应用级的音视频播放器。ExoPlayer 支持基于 HTTP 的动态自适应流 (DASH)、SmoothStreaming 和通用加密、以及可以很好的支持播放队列、播放源的无缝切换等功能。它采用易于自定义和扩展的设计。  
+内部的实现也是调用了低层API，比如：MediaCodec、AudioTrack等
+
+画张表格来对比下ExoPlayer和MediaPlayer，更直观的了解
+
+![](https://pic3.zhimg.com/80/v2-48fad76b5320f7378c3900cc60f21e1e_720w.jpg)
+
+**状态机**  
+在看ExoPlayer的状态机之前，我们先看下MeidaPlayer的状态机
+
+![](v2-9847d0d00fa711ea28ed0a9476e05cd5_720w.webp)
+可以看到MediaPlayer的状态比较多，使用时如果在不当的位置触发了不匹配的操作，直接会崩溃。
+
+## 5.ijkplayer
+ijkPlayer是BiliBili公司维护的一个开源工程，**基于ffmpeg开发的一个播放器软件**，支持Android和iOS平台，整个ijkplayer就是以ffplay为基础，如果只是使用它进行播放，集成也较为简单，使用也和MediaPlayer差不多，但是要定制化需求，就有一定的门槛高度。
+
 ijkplayer是一款跨平台的播放器，支持Android与iOS端，核心部分基于ffmpeg，支持Android的mediacodec硬解与iOS的videotoolbox硬解，视频图像采用OpenGL进行渲染。许多主流播放器都使用ijkplayer作为播放方案。接下来我们从核心播放流程、内核架构、时序图、状态机、播放器整体架构进行详细分析。
-
-
 
 # 5. 流媒体传输协议
 
@@ -198,6 +352,9 @@ RTMP协议支持Push和Pull两种模式，Pull即是普遍的客户端根据URL�
 
 当握手完毕后，连接将被复用来发送一个或多个Chunk流，Chunk的默认大小为128字节，由客户端和服务器设置其可以接受的Chunk大小（可以动态调整），Chunk承载的Message类型不同，其Message Header亦有多种，不同的fmt取值将用以鉴别不同的Chunk类型。
 
+
+![[v2-b7022a92221cfb9905ed10252102616a_720w.jpg]]
+
 ## HLS、HDS、HSS
 
 RTSP和RTMP是基于会话的流媒体协议，HLS(Http Live Streaming)、HDS(Http Dynamic Streaming)和Smooth Streaming(HSS)则是基于HTTP的协议。
@@ -219,6 +376,32 @@ HLS协议的劣势（相比RTMP协议）
 HLS也有一些无法跨越的坑，比如采用HLS协议直播的视频延迟时间无法下到10秒以下，而RTMP协议的延迟最低可以到3、4秒左右。所以说对直播延迟比较敏感的服务请慎用HLS。
 
 # WebRTC（Web Real-Time Communications）
+
+
+## 录制视频的方式
+
+在Android系统当中，如果需要一台Android设备来获取到一个MP4这样的视频文件的话，主流的方式一共与三种：MediaRecorder、MediaCodec+MediaMuxer、FFmpeg。
+
+### MediaRecorder
+是Android系统直接提供给我们的录制类，用于录制音频和视频的一个类，简单方便，不需要理会中间录制过程，结束录制后可以直接得到音频文件进行播放，录制的音频文件是经过压缩的，需要设置编码器，录制的音频文件可以用系统自带的播放器播放。
+
+优点：大部分以及集成，直接调用相关接口即可，代码量小，简单稳定；
+
+缺点：无法实时处理音频；输出的音频格式不是很多。
+
+### MediaCodec+MediaMuxer
+MediaCodec 与 MediaMuxer结合使用同样能够实现录制的功能。MediaCodec是Android提供的编解码类,MediaMuxer则是复用类(生成视频文件)。从易用性的角度上来说肯定不如MediaRecorder，但是允许我们进行更加灵活的操作，比如需要给录制的视频添加水印等各种效果。
+
+优点: 与MediaRecorder一样低功耗速度快，并且更加灵活
+
+缺点: 支持的格式有限，兼容性问题
+
+### FFmpeg 
+FFmpeg（Fast forword mpeg，音视频转换器）是一个开源免费跨平台的视频和音频流方案，它提供了录制/音视频编解码、转换以及流化音视频的完整解决方案。主要的作用在于对多媒体数据进行解协议、解封装、解码以及转码等操作
+
+优点：格式支持非常的强，十分的灵活，功能强大，兼容性好；
+
+缺点：C语言些的音视频编解码程序，使用起来不是很方便。
 
 # 5.直播设计
 
