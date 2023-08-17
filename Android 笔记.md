@@ -9,7 +9,7 @@ Andrid系统的体系结构设计为多层结构，这种结构在给用户提�
 ![](7048342-ee25f19c86daa94a.webp)
 
 Google官方提供的Android系统的四层架构图
-应用层，framework，第三方c++库+安卓虚拟机 + java核心库，linux内核层。
+应用层，framework，第三方c++库 + 安卓虚拟机 + java核心库，linux内核层。
 
 正常来说在native层应该还需要加上一层HAL硬件抽象层，硬件厂商驱动可以不开源的情况下提供接口给android系统调用
 ![[截图20230814163045.png]]
@@ -73,7 +73,8 @@ ower Management:电量管理驱动）等
 
 ###  五,系统启动流程
 
-
+相关扩展：[[#2.2.1 app启动流程]]
+相关扩展：[[#2.2.2 activity启动流程]]
 
 ![[20230814063644.png]]
 
@@ -112,12 +113,12 @@ boot Rom
 	- **1）初始化binder驱动**
 	- **2）将自身以“manager” 添加到 servicemanager 中的map集合中**
 	- **3）注册成为binder驱动的上下问管理者**
-	- **4) 给Looper设置callback,进入无限循环，处理client端发来的请求**
+	- **4)  给Looper设置callback,进入无限循环，处理client端发来的请求**
 
 - -> 启动zygote（通过init.rc各种参数启动的）（即java进程的鼻祖）并且初始化了一个binder。
 
 - -> zygote启动dvm 虚拟机( AndroidRuntime.startVm()方法，该方法中设置了很多虚拟机参数，比如堆大小等等 )
-- -> zygote初始化注册jni（各种动态注册常用jni，例如messagequeue的pollNativeOnce，Bitmap的处理）
+- -> zygote初始化注册jni（完成虚拟机中的JNI方法注册。动态注册各种常用jni，例如messagequeue的nativePollOnce，Bitmap的处理）
 	```cpp
 	//frameworks/base/core/jni/AndroidRuntime.cpp
 	JNIEnv* env;
@@ -133,7 +134,7 @@ boot Rom
 
 - -> 反射执行 ZygoteInit.main() 进入java层，執行java代碼
 
-- -> zygoteInit  **perload()加载系统类（各种应用层组件例如Textview），resources资源（例如 字体）
+- -> java zygoteInit  **perload()加载系统类（各种应用层组件例如Textview），resources资源（例如 字体）
 	- peload是一个耗时操作，优化系统启动可以从这里出手
 		预加载类和资源
 		ZygoteInit#preload()
@@ -157,8 +158,7 @@ boot Rom
 
 ![](QQ截图20220506193542.png)
 
-相关扩展：[[#2.2.1 app启动流程]]
-相关扩展：[[#2.2.2 activity启动流程]]
+
 
 #### 补充点
 - （1）新进程fork zygote，能fork zygote中的资源的，dvm，jni等，每个进程就一个binder
@@ -190,7 +190,8 @@ init.rc 文件并不是普通的配置文件，而是由一种被称为“Androi
 该文件在ROM中是只读的，即使有了root权限，可以修改该文件也没有。
 因为我们在根目录看到的文件只是内存文件的镜像。也就是说，android启动后，会将init.rc文件装载到内存。而修改init.rc文件的内容实际上只是修改内存中的init.rc文件的内容。
 一旦重启android，init.rc文件的内容又会恢复到最初的装载。想彻底修改init.rc文件内容的唯一方式是**修改Android的ROM中的内核镜像。init.rc只是语法文件，并不是程序，真正的入口则是上面提到的system/core/init/init.c 。**
-
+#### 为什么init进程也要死循环？
+init是一个守护进程，为了防止init的子进程（zoygote进程）成为僵尸进程(zombie process)，**需要init在子进程在结束时获取子进程的结束码，通过结束码将程序表中的子进程移除，** 防止成为僵尸进程的子进程占用程序表的空间，**当程序表的空间达到上限时，则系统就不能再启动新的进程了，** 那么就会引起很严重的系统问题。
 ## 1.Android 四大组件,五大存储，六大布局
 
 ### 1.总体简介：
@@ -532,13 +533,20 @@ Android 11之后，储存权限更加严格，添加了一条叫做`MANAGE_EXTER
 dex生成、instant run等看 [[#45.热修复]]
 
 
-![](dcc282fd0bcc45f686473d2c23a9232f~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.webp)
+![[(dcc282fd0bcc45f686473d2c23a9232f~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.webp)]]
 
 ### 1.打包资源文件，生成R.java文件
 
 aapt（打包工具Android Asset Packaging Tool）来打包res资源文件，生成R.java、resources.arsc和res文件。
 
 **AAPT2**（Android 资源打包工具）是一种构建工具，Android Studio 和 Android Gradle 插件使用它来编译和打包应用的[资源](https://link.zhihu.com/?target=https%3A//developer.android.com/guide/topics/resources/providing-resources)。AAPT2 会解析资源、为资源编制索引，并将资源编译为针对 Android 平台进行过优化的二进制格式。
+**1、编译：将资源文件编译为二进制格式。**
+把所有的Android资源文件进行解析，生成扩展名为.flat的二进制文件。比如是png图片，那么就会被压缩处理，采用.png.flat的扩展名。可以在build/intermediates/merged_res/文件下查看生成的中间产物。
+
+**2、链接：合并所有已编译的文件并将它们打包到一个软件包中。**
+首先，这一步会生成辅助文件，比如R.java与resources.arsc，R文件大家应该都比较熟悉，就是一个资源索引文件，我们平时引用也都是通过R.的方式引用资源id。而resources.arsc则是资源索引表，供在程序运行时根据id索引到具体的资源。最后会将R文件，ressources.arsc文件和之前的二进制文件进行打包，打包到一个软件包中。  
+
+这种拆分方式有助于提高增量编译的性能。例如，如果某个文件中有更改，您只需要重新编译该文件
 
 Android Gradle 插件 3.0.0 及更高版本默认情况下会启用 AAPT2，因此您通常不需要自行调用 aapt2。不过，如果您更愿意使用自己的终端和构建系统而不是 Android Studio，则可以从命令行使用 AAPT2。
 
@@ -576,12 +584,14 @@ Jarsigner阶段。通过Jarsigner工具，对上面的apk进行debug或release�
 
 apk是一个压缩包，里面有lib，META-INF，classes.dex，res，resources.arsc文件夹和文件 
 
-**lib**	放的是so动态链接库	apk打包不需要处理的动态库
-**META-INF**	签名文件夹	三个签名证书（MANIFEST.MF、CERT.SF、CERT.RSA）。MANIFEST.MF文件是对每个文件的SHA-256-Digest；CERT.SF是对每个文件的头3行进行SHA-256-Digest；CERT.RSA这个文件保存了签名和公钥证书。
-**classes.dex**	执行文件	java编译后的Android可执行的dex文件
-**AndroidManifest.xml**	声明文件	记录应用的名字、版本、权限、引用的库文件等信息
-**res**	资源文件	有**animator,anim,color,drawable,layout,menu，raw等文件夹**
-**resources.arsc**	编译后的二进制资源文件	记录了所有的**应用程序资源目录的信息**，包括每一个资源名称、类型、值、ID以及所配置的维度信息。 这是一个索引文件。
+|文件名|解释|
+|---|---|
+|**lib**	|放的是so动态链接库	apk打包不需要处理的动态库|
+|**META-INF**	|签名文件夹	三个签名证书（MANIFEST.MF、CERT.SF、CERT.RSA）。MANIFEST.MF文件是对每个文件的SHA-256-Digest；CERT.SF是对每个文件的头3行进行SHA-256-Digest；CERT.RSA这个文件保存了签名和公钥证书。|
+|**classes.dex**|	执行文件	java编译后的Android可执行的dex文件|
+|**AndroidManifest.xml**	|声明文件	记录应用的名字、版本、权限、引用的库文件等信息|
+|**res**|	资源文件	有**animator,anim,color,drawable,layout,menu，raw等文件夹**|
+|**resources.arsc**|	编译后的二进制资源文件	记录了所有的**应用程序资源目录的信息**，包括每一个资源名称、类型、值、ID以及所配置的维度信息。 这是一个索引文件。|
 
 ## 6.build优化加速
 
@@ -744,16 +754,17 @@ https://blog.51cto.com/u_15296378/3087781
 
 ## 8. 唯一标识符
 
-AndroidID：根据硬件信息系统信息和操作系统版本号等等。Android ID是在设备首次启动时生成的。获取无需权限。
+- AndroidID：根据硬件信息系统信息和操作系统版本号等等。Android ID是在设备首次启动时生成的。获取无需权限。
 
-IMEI,MEID（deviceid一般是）: 和手机支持的网络制式相关，注意：Android10以上禁止获取IMEI，因为需要READ_PRIVILEGED_PHONE_STATE权限，而该权限只能是系统应用才可以获取到。
+- IMEI,MEID（deviceid一般是）: 和手机支持的网络制式相关，注意：Android10以上禁止获取IMEI，因为需要READ_PRIVILEGED_PHONE_STATE权限，而该权限只能是系统应用才可以获取到。
 
-OAID(推荐):移动安全联盟（中国通讯院）和各个国内厂商推出的设备识别字段。不需要权限，引入lib支持，仅安卓10以上。
+- OAID(推荐):移动安全联盟（中国通讯院）和各个国内厂商推出的设备识别字段。不需要权限，引入lib支持，仅安卓10以上。
 
 # 1. Context
 
 上下文，可以这么理解，context是存储了当前activity/application中的各种配置信息，资源读取等等，是与参与app内容和资源管理的代理者。
-
+详细读取与加载资源看context的ceateAppContext和createActivityContext方法。
+![[5c86b30f1705676b57702455c42ce48b.jpg]]
 # 2. Activity
 
 ## 2.1 app启动方式
@@ -768,10 +779,25 @@ OAID(推荐):移动安全联盟（中国通讯院）和各个国内厂商推出�
 
 
 
+## activity启动模式
+
+启动模式总共有四种：
+
+- standard : 标准模式，每次启动都会创建一个activity对象。无论堆栈中是否存在相应的activity.每次创建过后的[生命周期](https://so.csdn.net/so/search?q=%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F&spm=1001.2101.3001.7020) 会从oncreate 开始重新执行
+- singTop ：栈顶复用模式，启动activity时，如果activity实例位于栈顶，那么就复用该activity对象。如果存在于栈顶的话，这时候就会直接复用栈顶的activity.
+	这时候的生命周期,不会调用oncreate,和onstart, **而会调用 onNewIntent.**
+- singTask ：栈内复用模式（单实例模式），启动activity时，如果activiy实例在栈内已经存在，那么将复用此activity。**该实例上面的activity全部弹出堆栈，保证当前的实例存在于栈顶，这时候的生命周期依然是调用onNewIntent.**
+- singInstance ：单实例模式，拥有singTask所有的特性，同时具有此模式的Activity只能单独的位于一个任务栈中的特点。
+
+onNewIntent ：这时候虽然传递过来新的Intent, 但是如果我们直接使用getIntent获取的数据依然是老数据，所以我们在onNewIntent中需要设置新的intent
+
+建议扩展到ATMS里去查看实现。
 ## 2.2 Activity生命周期和启动流程
 相关扩展：[[#五,系统启动流程]]
 
-onCreate  onStar() onResume  开始绘制 -> 切换界面->onPasue
+![[8c7a5783e7ed4376aa45fccf2fca26d4.webp]]
+
+onCreate  onStar() onResume  ->开始绘制 -> 切换界面->onPasue
 
 ->onStop ->onDestory
 
@@ -786,34 +812,43 @@ onSaveInstanceState()在生命周期结束前会调用该方法保存状态，
 将状态数据以key-value的形式放入到savedInstanceState中 
 
 
+- onCreat() 不可见不可交互 创建时调用. setContentView,反射解析xml布局。
 
-onCreat() 不可见不可交互 创建时调用
-
-onStart()是activity界面被显示出来的时候执行的，用户可见，包括有一个activity在他上面，但没有将它完全覆盖，用户可以看到部分activity但不能与它交互    创建时或者从后台重新回到前台时调用
-
-
+- onStart()是activity界面被显示出来的时候执行的，用户可见，包括有一个activity在他上面，但没有将它完全覆盖，用户可以看到部分activity但不能与它交互    创建时或者从后台重新回到前台时调用
 
 下面这三个状态是静态（static）的，意味着activity只有在这三个状态下能停留一段时间：
 
-onResume()是该activity与用户能进行交互时被执行，用户可以获得activity的焦点，能够与用户交互。
+- onResume()是该activity与用户能进行交互时被执行，用户可以获得activity的焦点，能够与用户交互。创建或者从被覆盖、后台重新回到前台时被调用，此时解析的view被add到contentview中。
 
-​            创建或者从被覆盖、后台重新回到前台时被调用 
+- onPause() 可见不可交互（部分可见），不能接收用户输入也不能执行代码，另一个半透明或者小的activity正挡在前面。被覆盖到下面或者锁屏时被调用 
 
-onPause() 可见不可交互（部分可见），不能接收用户输入也不能执行代码，另一个半透明或者小的activity正挡在前面。
-
-​                        被覆盖到下面或者锁屏时被调用 
-
-onStop() 不可见不可交互失去焦点，activity完全被遮挡，不能被用户看到，activity被认为在background，当Stopped的时候，activity实例的状态信息被保留，但是不能执行任何代码。
-
-​                         退出当前Activity或者跳转到新Activity时被调用 
+- onStop() 不可见不可交互失去焦点，activity完全被遮挡，不能被用户看到，activity被认为在background，当Stopped的时候，activity实例的状态信息被保留，但是不能执行任何代码。
+退出当前Activity或者跳转到新Activity时被调用 
 
 
 
-onRestart() 从不可见到可见   
+- onRestart() 从不可见到可见   
 
-onDestory() 销毁activity     退出当前Activity时被调用,调用之后Activity就结束了
+- onDestory() 销毁activity     退出当前Activity时被调用,调用之后Activity就结束了
 
 ![](QQ截图20230112185042.png)
+## onRestoreInstanceState和onSaveInstanceState（Activity创建与恢复）
+![[20191207134521432.png]]
+
+
+onSaveInstanceState()方法的作用：
+
+    给Bundle对象中保存相应的 instance state （指的是key-value pairs），这样当activity重新创建的时候，就可以通过获取bundle中存储的值，恢复到自己之前的状态
+    在OnStop方法之后调用，通过lifeCycler的注册监听的。
+
+onRestoreInstanceState()方法的作用
+
+    获取bundle中存储的instance state ，通过存储的值将activity恢复到我们期望的状态
+	当系统将我们的activity回收，并重新恢复的时候，会在Created状态之后调用onStart()方法，然后调用onRestoreInstanceState()方法，比如屏幕旋转的时候会调用onRestoreInstanceState()。
+	
+	但是activity进入后台再到可见的时候并不会调用onRestoreInstanceState()。
+	系统仅仅会在存在需要恢复的状态信息的时候调用onRestoreInstanceState()，因此在onRestoreInstanceState()方法中我们不需要判断bundle是否为null，这也意味着，调用了onRestoreInstanceState()那onSaveInstanceState()方法也必定调用过。但是如果是在onCreate()中恢复Bundle中的数据，那么我们就需要考虑Bundle是否为null。
+
 
 ### 2.2.1 app启动流程
 相关扩展[[#五,系统启动流程]]
@@ -821,22 +856,82 @@ onDestory() 销毁activity     退出当前Activity时被调用,调用之后Acti
 #### 流程：
 
 **app启动流程** 
-- >** launcher通过SERVICE_MANAGER获取ams**
+
+![[截图20230815033305.png]]
+
+- > ** launcher调用startActivitySafely()通过 SERVICE_MANAGER 获取ams**
+	```java
+	default boolean startActivitySafely(
+	View v, Intent intent, @Nullable ItemInfo item) {
+	....
+intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);//启动一个新的activtiy栈
+	....
+if (isShortcut) {
+	// Shortcuts need some special checks due to legacy reasons.
+	startShortcutIntentSafely(intent, optsBundle, item);
+	} else if (user == null || user.equals(Process.myUserHandle())) {
+	// Could be launching some bookkeeping activity
+	context.startActivity(intent, optsBundle);
+	} else {
+	context.getSystemService(LauncherApps.class).startMainActivity(
+	intent.getComponent(), user, intent.getSourceBounds(), optsBundle);
+	}
+....
+} catch (NullPointerException | ActivityNotFoundException | SecurityException e) {
+.....
+}
+	```
 - >通知ams通知要启动一个activity 
 - > ams通过binder通知**launcher进入** **pause状态**
-- > launcher通过binder**通知准备就绪** 
+- > launcher通过binder**通知ams准备就绪** 
 - > **AMS创建一个ActivityThread实例**(其实是一个binder) 
- - > acitvitythread返回一个**applicationThread类型的binder**用于activityThread与ams通信。(调用ams attch （）进行绑定)
+- -> ams通知activityThread调用main方法 
+- > acitvitythread创建返回一个 **applicationThread 类型的binder** 用于activityThread与ams通信。
+- > 调用activtiyManagerServive.attch(   )进行绑定
+- -> ams将入口 activity 等信息通过binder传递给 app
+- > binder调用bindAppliction()方法根据ams发过来的包信息创建applictioncontext，初始化资源信息
+ - >初始化 Instrumentation，app通过performLanchActivity()方法启动对应入口的activity , 进入activtiy启动流程
 
-- > ams通知activityThread调用mian方法 
-
-- > ams将入口activity信息传递给app
-
- - > app启动对应入口的activity , 并创建对应applicationContext，并调用onCreate方法
-
-
+注意：版本不同会代用不一致，比如创建application的方式或者是启动activity的方式
 
 #### 常见问题：
+### 什么是activtiyThread:
+ActivityThread是应用进程的初始化类，它的main()方法就是应用的入口方法，也就是说应用进程被创建后会调用ActivityThread.main()方法,创建一个ActivtyThread，并进MainLooper的循环。
+```JAVA
+static void main(String[] args){
+....
+	Looper.prepareMainLooper();  
+	  
+.....
+//创建ActivityThread
+	ActivityThread thread = new ActivityThread();  
+	thread.attach(false, startSeq);  
+	  
+	if (sMainThreadHandler == null) {  
+	    sMainThreadHandler = thread.getHandler();  
+	}  
+	  
+	if (false) {  
+	    Looper.myLooper().setMessageLogging(new  
+	            LogPrinter(Log.DEBUG, "ActivityThread"));  
+	}  
+	  
+	// End of event ActivityThreadMain.  
+	Trace.traceEnd(Trace.TRACE_TAG_ACTIVITY_MANAGER);  
+	Looper.loop();}
+  
+....
+```
+
+### 什么是ApplicationThread
+他是一个binder，用于AMS通知ActivityThread
+```java
+private class [ApplicationThread] extends [IApplicationThread].[Stub]() {..
+
+..}
+```
+
+
 
 App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局未加载到window中，**就先显示来windows窗口的背景。黑屏/白屏就是显示的windows背景（这个就是theme的设置）**
 
@@ -862,44 +957,95 @@ App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局�
 
 </style>
 
-App的启动优化：
+### App的启动优化：
 
 	(1) Application的创建过程中尽量少的进行耗时操作（創建application）
 
 	(2) 如果用到SharePreference,尽量在异步线程中操作
 
 	(3) 减少布局的层次,并且生命周期回调的方法中尽量减少耗时的操作（解析viewtree）
+	可以使用idlehandle
 
 
 
 ### 2.2.2 activity启动流程
 
-如果是桌面图标
-->那么就是通过lancher.java
-->strartctivtiy
--》execStartActivities
--》ActivtiyThread
--》handleLaunchActivity()
--》performLanchActivity()
--》mInstrumentation。newActivtiy创建对象activtiy
--》创建appliction（现有activity再有appliction）
--》（調用activtiy.ATTCH（传入了大量参数，instrument等等）**在attch中創建phonewindo，wm**）
+相关扩展[[#五,系统启动流程]]
+相关扩展[[#2.2.1 app启动流程]]
+相关[[#7.2 View绘制流程]]
 
--》(mInstrumentation.callActivityOnCreate
--》setContentView解析xml構建viewtree))
--》**ActivtiyThread.handlePerfromResume()
--> 进入ui绘制流程，此时decodview才添加到**wm中，开始显示界面
+-> strartctivtiy
+-> Instrument.execStartActivities
+->**通过binder - applicationThread 跨进程调用 ActivityTaskManagerService.startActivity()**
+
+->ams 通过 applicationThread 回调ActivityThread.startActivityNow ，并传回一个token
+- ams解析了
+-》ActivtiyThread.handleLaunchActivity()-》ActivtiyThread.performLanchActivity()
+- mInstrumentation.newActivtiy创建对象activtiy-》没有appliction则创建appliction或者获取已有（现有activity再有appliction） 
+		- 》調用activtiy.ATTCH（传入了大量参数，instrument等等
+		- 》**在Activtiy.attch(....)方法中創建phonewindow，windowsmanager**
+		
+- 》mInstrumentation.callActivityOnCreate
+```java
+//ActivityThread
+private Activity performLaunchActivity(ActivityClientRecord r, Intent customIntent) {
+....
+	ContextImpl appContext = createBaseContextForActivity(r);  
+	Activity activity = null;  
+	try {  
+	    java.lang.ClassLoader cl = appContext.getClassLoader();  
+	    
+	    activity = mInstrumentation.newActivity(  
+	            cl, component.getClassName(), r.intent);
+	            ...}
+	            
+	    activity.attach(instrument... activtycontext..., window,..)
+	    
+	            ...
+	            
+	    mInstrumentation.callActivityOnCreate( )//回调OnCreate( )
+....
+}
+```
+
+-》**setContentView解析  xml構建viewtree，调用phonewindow创建decoreview。（mLayoutInflater.inflate（）解析xml结构， 解析的控件通过反射创建view ）**
+
+-》  **ActivtiyThread.handlePerfromResume(), 看下图可知调用onResume比addView早。
+
+```JAVA
+public void handleResumeActivity(ActivityClientRecord r, boolean finalStateRequest,  
+        boolean isForward, String reason) {
+        ....
+        if (!performResumeActivity(r, finalStateRequest, reason)) {  //回调Activity Resume
+		    return;  
+		}
+        ....
+        windowmanager.addView(decorview, l);
+	    ....
+        }
+```
+-> 进入ui绘制流程，此时decodview才添加到**wm（windowMangerGlobal）中
+-> windowmanager是一个代理类，addview调用的其实是内部的windowmanagerGlobal单例的addview
+-> **创建`new ViewRootImpl`**，**调用`viewrootimpl addView`,  把`decoredview`放进去**,  调用viewrootview.requstLayout()
+- View 的交互，同时实在 ViewRootImpl 的 setView 时进行注册的，注册了一个 InputEventReceiver 接收事件。
+
+->viewrootview.scheduleTraversals( )
+->开始绘制，显示界面（看上图）
+
+后续[[#7.2 View绘制流程]]
 
 - （1）黑白屏原因在创建appliction+oncreate+setcontentview
 
 - （2）子线程setTextview不一定报错，如果在onCreate中，不会报错，但是等到resume之后就会报错
+- （3）生命周期回调函数都是在ActivtiyThread中performxxx之后才回调
+
 
 ![](QQ图片20220524183505.png)
 
 ![](4100513-11d4f617465558e7.webp)
 ### 2.2.3 **ActivityServiceManger/AMS**
 Framework层非常重要的一个service。用于启动和管理四大组件以及他们的生命周期
-
+存在于Sytemserver进程中，
 
 ## 2.3 APP重启
 
@@ -925,7 +1071,8 @@ Framework层非常重要的一个service。用于启动和管理四大组件以�
 
 **正常情况下Activity的创建和销毁不会调用onSaveInstanceState和onRestoreInstanceState方法。** 
 
-**当横竖屏切换时，Activity会被销毁，生命周期方法onPause, onStop, onDestory等均会被调用**，此时Activity属于异常情况下终止的，所以系统会调用onSaveInstanceState方法对Activity的状态进行保存。该方法在onStop之前调用，与onPause没有既定的时序关系。
+**当横竖屏切换时，Activity会被销毁，生命周期方法onPause, onStop, onDestory等均会被调用**，此时Activity属于异常情况下终止的，所以系统会调用`onSaveInstanceState`方法对Activity的状态进行保存。该方法在`onStop`之前调用，与`onPause`没有既定的时序关系。
+
 **当出现Crash时，除了其他的生命周期方法不会执行外，也会执行保存数据的操作。**
 
 
@@ -984,8 +1131,6 @@ public class MyService extends Service{
 ### 2. 后台服务
 
 一般情况下，Service几乎都是在后台运行，一直默默地做着辛苦的工作。但这种情况下，**后台运行的Service系统优先级相对较低**，当系统内存不足时，在后台运行的Service就有可能被回收。 
-
-
 
 ## 2.服务之间通信
 
@@ -1393,7 +1538,7 @@ public final class ViewRootImpl implements ViewParent,
 
 ViewRootImpl是View中的最高层级，属于所有View的根（`但ViewRootImpl不是View，只是实现了ViewParent接口`），（实现了View和WindowManager之间的通信协议，实现的具体细节在WindowManagerGlobal这个类当中，windowsManagerGlobal创建viewroot。 ），通过AIDL
 
-Activity中有Window对象，一个Window对象对应着一个View（`DecorView`），`ViewRootImpl`就是对这个View进行操作的。 
+Activity中有Window对象，一个Window对象创建着一个`DecorView`，`ViewRootImpl`就是对这个View进行操作的， **包括各种刷新开始操作等等，onResume之后才windowMangerGlobal才创建viewrootImpl，并且添加decorview进去，这也是也是为什么onCreate创建decordview之后没有显示，onResume之后才显式的原因。**
 
 viewImpl通过aidl binder （mWindowsSession）与wms通信，setView之后通知wms
 
@@ -1403,7 +1548,7 @@ viewImpl通过aidl binder （mWindowsSession）与wms通信，setView之后通�
 
 decorview中包含所有视图的具体逻辑。acitvity中的**setContentView()把布局文件传到decorview中**，
 
-**decorView本身是一个framelayout**，收到setContentview的布局后，使用**inflater**（布局填充器），把布局转化为view填充在其中。
+**decorView本身是一个framelayout**，收到setContentview的布局后，使用**inflater**（布局填充器），把布局转化为view填充在其中。属于Phonewindow
 
 ### 7.1.3 window
 
@@ -1418,14 +1563,47 @@ window是个抽象概念，其具体实现类是phonewindow**，activity和dialo
 
 
 ## 7.2 View绘制流程
+相关[[#2.2.2 activity启动流程]]
 
-onResume中无法正常获取宽高，此时还没viewroot.addview, resume之后才会触发绘制流程
+onResume中无法正常获取宽高，**此时还没viewroot.addview*, resume之后才会触发绘制流程，
 
-未perfromTraversal**
+-》**ActivityThread接受到resumre消息，执行handleResume**，
+-> hanleResume中
+- 先调用activtiy.PerformerResume，再调用 wm.addView创建viewRootImpl把decodview添加进去了。
+```java
+//windowMangaerGlobal.java#addView( )
+......
+if (windowlessSession == null) {  
+    root = new ViewRootImpl(view.getContext(), display);  
+} else {  
+    root = new ViewRootImpl(view.getContext(), display,  
+            windowlessSession);  
+}
+view.setLayoutParams(wparams);  
+  
+mViews.add(view);  
+mRoots.add(root);  
+mParams.add(wparams);
 
-ams -》**ActivityThread。handleResume**-》wmGlobal。updateViewLayout-》viewrootImpl。SETLAYOUTPARAMS-》viewrootImpl。requestlyout（）
+try {  
+    root.setView(view, wparams, panelParentView, userId);
+    ......
+```
+- 继续调用 wm.updateViewLayout( )
+-> 调用到viewrootImpl.`scheduleTraversals` 方法，`scheduleTraversals` 方法内部通过一个Choreographer 对象的 postCallback 执行一个 Runnable ，在这个 Runnable 中，调用 `doTraversal` 方法
 
--》viewrootImpl。**scheduleTravsals**（绘画的起点）-》（viewrootImpl）**doTraversal-》perfromTraversal（）-》performMeasure，performDraw，performlAYOUT，调用decordview的各个绘制过程**
+-》viewrootImpl. **scheduleTravsals**（绘画的起点）-> 调用消息屏障 ->`mChoreographer`注册监听回调 [[#Choreographer]]
+-》接收到vsync 回调（viewrootImpl）**doTraversal 移除消息屏障
+```java
+		void doTraversal() {  
+	    if (mTraversalScheduled) {  
+	        mTraversalScheduled = false;  
+	        mHandler.getLooper().getQueue().removeSyncBarrier(mTraversalBarrier);
+	        .....
+	        }
+```
+-》viewrootImpl.perfromTraversal（）
+-》performMeasure，performDraw，performlAYOUT，调用decordview的各个绘制过程**
 
 ![](繪製流程.webp)
 
@@ -1464,13 +1642,79 @@ ams -》**ActivityThread。handleResume**-》wmGlobal。updateViewLayout-》view
 
 #### **invalidate**：
 
-viewTree的子view调用invalidate（），其实是调用viewGroup的invalidateChildInParent（该过程支持硬件加速。此过程mPrivateFlags标记了刷新的view和标记对应受影响的矩形区域dirty），不断自下而上回调到Decoview，到rootviewimpl，,调用perfromTravsals，开始绘制流程
+viewTree的子view调用invalidate（），其实是调用viewGroup的invalidateChildInParent（该过程支持硬件加速。此过程mPrivateFlags标记了view刷新类型的和标记对应受影响的矩形区域dirty），不断自下而上回调到Decoview，到rootviewimpl，,调用perfromTravsals，开始绘制流程
+
+- view. invalidate()->invalidateInternal( 传入本身大小)-> 调用skipInvalidate()判断一下是否刷新，不符合条件直接return ,不更新。这里可以看出不可见并且没有播放动画时候才能变化，
+	```java
+		private boolean skipInvalidate() {  
+	    return (mViewFlags & VISIBILITY_MASK) != VISIBLE && mCurrentAnimation == null &&  
+            (!(mParent instanceof ViewGroup) ||  
+                    !((ViewGroup) mParent).isViewTransitioning(this));  
+	}
+	```
+- **往下继续看 `invalidateInternal()` 的代码，可以翻到：这里调用了`ViewParent`的`invalidateChild()`： 并且把刷新区域Rect传入
+
+	```java
+		final ViewParent p = mParent;  
+		if (p != null && ai != null && l < r && t < b) {  
+		    final Rect damage = ai.mTmpInvalRect;  
+		    damage.set(l, t, r, b);  
+		    p.invalidateChild(this, damage);  
+		}
+	```
+- viewparent(也就是viewgroup， viewgroup extends viewparent) 继续运行invalidateChild(child, final Rect dirty )，重点来了，此处会不断do{ ...}while（）不断获取parent的parent，直到viewRootImpl
+	```java
+    @Override
+    public final void invalidateChild(View child, final Rect dirty) {
+        final AttachInfo attachInfo = mAttachInfo;
+        if (attachInfo != null && attachInfo.mHardwareAccelerated) {
+            // HW accelerated fast path
+            onDescendantInvalidated(child, child);
+            return;
+        }
+
+        ViewParent parent = this;
+        if (attachInfo != null) {
+            ...
+            do {
+                ...
+                parent = parent.invalidateChildInParent(location, dirty);
+                ...
+            } while (parent != null);
+        }
+    }
+	```
+
+- 最终会调用到ViewRootImpl.invalidateChildInParent -> 
+invalidateRectOnScreen(Rect dirty) {
+
+-  ViewRootImpl.scheduleTraversals( )   开始重绘 ->进入view的绘制流程
+ ```java
+	void scheduleTraversals() {  
+	    if (!mTraversalScheduled) {  
+	        mTraversalScheduled = true;  
+	        //发送一个消息屏障，绘制优先
+	        mTraversalBarrier = mHandler.getLooper().getQueue().postSyncBarrier();  
+	        mChoreographer.postCallback(  
+	                Choreographer.CALLBACK_TRAVERSAL, mTraversalRunnable, null);  
+	        notifyRendererOfFramePending();  
+	        pokeDrawLockIfNeeded();  
+	    }  
+	}
+ ```
 
 Webvie建议使用硬件加速，不然又加载问题，有了也可能会出现其他问题
 
 **仅用于重绘**
 
 postInvalidate是在非UI线程中调用，invalidate则是在UI线程中调用。
+postInvalidate是直接调用`viewrootImpl `的 `mHandler.sendMessageDelay()`，viewrootImpl才调用目标`view的invalidate`
+```java
+Message msg = mHandler.obtainMessage(MSG_INVALIDATE, view);  
+mHandler.sendMessageDelayed(msg, delayMilliseconds);
+```
+
+思考：postInvalidate会导致什么问题？提示：消息屏障
 
 #### ***requestlayout：***
 
@@ -1497,6 +1741,7 @@ requestLayout会直接递归调用父窗口的requestLayout，
 **view内部类，封装了view尺寸。**
 
 值保存在int值中，mode +size
+int是32位的，其中高2位表示模式（Mode），低30位表示大小（Size）。
 
 对于View来说，**`MeasureSpec`的mode**和Size有如下意义
 
@@ -1506,7 +1751,7 @@ requestLayout会直接递归调用父窗口的requestLayout，
 | AT_MOST     | 最大模式，View的尺寸有一个最大值，View不可以超过MeasureSpec当中的Size值 |      |
 | UNSPECIFIED | 无限制，View对尺寸没有任何限制，View设置为多大就应当为多大。 这种情况一般用于系统内部，表示一种测量状态。 |      |
 
-
+**子View的MeasureSpec是由自身的LayoutParams和父布局的MeasureSpec共同确定的**。
 
 ###  7.2.2 Draw()
 
@@ -1587,9 +1832,84 @@ requestLayout会直接递归调用父窗口的requestLayout，
 
     }
         
+``` 
+
+通过Surface类与SurfaceFlinger进程通信通知渲染，通过Gereograher同步绘制信息。
+相关扩展[[#7.5 Android渲染机制--SurfaceFlinger]]
+
+### 7.2.4 常见问题
+
+#### 1）onResume中无法正常获取宽高
+但postdelay之后可以（参考handleResume和addview创建过程和时机，或者在onWindowsFocusChange中（**得到焦点**或者**失去焦点**时会调用，绘制完毕时候会调用）
+
+#### 2）onCreate和onResume中可以在子线程操作view（没有触发activtiy刷新，其余原理同上
+
+在分析ViewRootImpl里requestLayout/invalidate过程中，发现其内部调用了checkThread()方法：
+原因在于两点：
+- ViewRootImpl此时还没创建，还没进行渲染，resume后才会requestLayout/invalidate，不会出发创建
+
+- 其实判断的是创建viewRootImpl了ViewTree的线程才能操作里边的View，如果在子线程创建Dialog，那么该子线程也能刷新dialog的view。 mThread 是 创建viewRootImpl时传入的。
+```java
+	#ViewRootImpl.java
+    void checkThread() {
+        //当前调用线程与mThread不是同一线程则会抛出异常
+        if (mThread != Thread.currentThread()) {
+            //简单翻译来说：只有创建了ViewTree的线程才能操作里边的View
+            throw new CalledFromWrongThreadException(
+                    "Only the original thread that created a view hierarchy can touch its views.");
+           }
+```
+#### 3）”黑科技“——View.post（）
+我们看下源码，post后并没有马上执行，而是添加到一个任务队列 HandlerActionQueue 中，
+
+知是 `dispatchAttachedToWindow` 的时候才会调用执行队列内的任务，就是
+`performTraversals`之后才会调用dispatchAttachedToWindow。
+**是在 View 绘制流程的开始阶段，通过mAttachInfo将所有任务重新发送到消息队列的尾部，此时相关任务的执行已经在 View 绘制任务之后，即 View 绘制流程已经结束，此时便可以正确获取到 View 的宽高了**。
+
+getRunQueue().post(action)
+
+```java
+public boolean post(Runnable action) {  
+    final AttachInfo attachInfo = mAttachInfo;  
+    if (attachInfo != null) {  
+        return attachInfo.mHandler.post(action);  
+    }  
+    // Postpone the runnable until we know on which thread it needs to run.  
+    // Assume that the runnable will be successfully placed after attach.    
+    getRunQueue().post(action);  
+    return true;}
 ```
 
-### 7.2.3 多次mesure（）原因
+```java
+void dispatchAttachedToWindow(AttachInfo info, int visibility) {  
+    mAttachInfo = info;  
+    if (mOverlay != null) {  
+        mOverlay.getOverlayView().dispatchAttachedToWindow(info, visibility);  
+    }  
+    mWindowAttachCount++;  
+    // We will need to evaluate the drawable state at least once.  
+    mPrivateFlags |= PFLAG_DRAWABLE_STATE_DIRTY;  
+    if (mFloatingTreeObserver != null) {  
+        info.mTreeObserver.merge(mFloatingTreeObserver);  
+        mFloatingTreeObserver = null;  
+    }  
+  
+    registerPendingFrameMetricsObservers();  
+  
+    if ((mPrivateFlags&PFLAG_SCROLL_CONTAINER) != 0) {  
+        mAttachInfo.mScrollContainers.add(this);  
+        mPrivateFlags |= PFLAG_SCROLL_CONTAINER_ADDED;  
+    }  
+    // Transfer all pending runnables.  
+    if (mRunQueue != null) {  
+        mRunQueue.executeActions(info.mHandler);  
+        mRunQueue = null;  
+    }  
+    performCollectViewAttributes(mAttachInfo, visibility);  
+    onAttachedToWindow();
+
+```
+### 多次mesure（）原因
 
 View的这个方法是被它的父控件调用的，也就是说widthMeasureSpec和heightMeasureSpec是通过父控件传递进来的，这两个参数确实在很大程度上是决定了一个View的尺寸的 。
 
@@ -1602,14 +1922,6 @@ View的这个方法是被它的父控件调用的，也就是说widthMeasureSpec
 
 
 **父视图可能在它的子视图上调用一次以上的measure(int,int****)方法***。***例如，父视图可以使用unspecified dimensions来将它的每个子视图都测量一次来算出它们到底需要多大尺寸，如果所有这些子视图没被限制的尺寸的和太大或太小，那么它会用精确数值再次调用measure()（也就是说，如果子视图不满意它们获得的区域大小，那么父视图将会干涉并设置第二次测量规则）**。 
-
-
-
-### 7.2.4 常见问题
-
-1）onResume中无法正常获取宽高，但postdelay之后可以（参考handleResume和addview创建过程和时机，或者在onWindowsFocusChange中（**得到焦点**或者**失去焦点**时会调用，绘制完毕时候会调用）
-
-2）onResume中可以在子线程操作view（没有触发activtiy刷新，其余原理同上
 
 ### 7.2.5 扩展内容
 
@@ -1721,9 +2033,11 @@ public class MyTextView extends View {
 }
 ```
 
-## 7.4 WMS
+## 7.4 WMS/WindowsMangerService (内容等待完善)
+职责：
+![[3884533-5c1e2b3c161851b2.webp]]
 
-位于Framework层的窗口管理服务
+位于Framework层的窗口管理服务，属于Sysrtem_server进程，binder存在于serviceManger进程。
 
 activtiy onResume之后才绑定
 
@@ -1731,24 +2045,58 @@ activtiy onResume之后才绑定
 ![[7bac31f1a02d29163350542fccfd0a78.png]]
 通常情况下，一个 `Activity` 的 `UI` 渲染本质是 系统提供一块内存，并创建一个图形缓冲区进行维护**；这块内存就是 `Surface`，最终页面所有 `View` 的 `UI` 状态数据，都会被填充到同一个 `Surface` 中
 
+
 ###  7.4.1 window分类
 
 Window 有三种类型，分别是**应用 Window**、**子 Window** 和**系统 Window**。应用类 Window 对应一个 Acitivity，子 Window 不能单独存在，需要依附在特定的父 Window 中，比如常见的一些 Dialog 就是一个子 Window。系统 Window是需要声明权限才能创建的 Window，比如 Toast 和系统状态栏都是系统 Window。
 ![[14919101-a34496946644357e.webp]]
 
-### 7.4.2 wm
+window主要用于管理decoview，与WindowManagerService通过AIDL IBinder --- windowSession 
+
+#### WindowToken：
+
+类声明：
+```ruby
+class WindowToken extends WindowContainer<WindowState>
+```
+**表明WindowToken也是子容器，其子容器是WindowState，所以WindowState也是一个容器。**
+
+WindowToken在窗口体系中有**两个作用**：
+
+- 1.**应用组件标识**：将属于同一个应用组件的窗口组织在一起，这里的应用组件可以是：Activity、InputMethod、Wallpaper以及Dream。 WMS在对窗口的管理过程中：用WindowToken来指代一个应用组件。例如在进行窗口的Z-Order排序时，属于同一个WindowToken的窗口会被安排在一起。
+- 2.**令牌作用**：WindowToken由应用组件或其管理者负责向WMS声明并持有，应用组件在需要更新窗口时，需要向WMS提供令牌表明自己的身份， 并且窗口的类型必须与所持有的WindowToken的类型一致。
+
+  #### WindowState：
+
+类声明：
+
+```ruby
+class WindowState extends WindowContainer<WindowState>
+```
+
+**表明WindowState也是一个WindowContainer容器，但是其子容器也是WindowState**，一般窗口有子窗口SUB_WINDOW的情况下，WindowState才有子容器节点。
+
+**WindowState在WMS中表示一个Window窗口状态属性，其内部保存了一个Window所有的属性信息。**
+
+  
+![[3884533-3110238af14e7e3b.webp]]
+  
+
+### 7.4.2 WindowManger
 
 WindowManager是Android中一个重要的Service,是全局且唯一的。WindowManager继承自ViewManager。  WindowManager主要用来管理窗口的一些状态、属性、view增加、删除、更新、窗口顺序、消息收集和处理等。Android中真正展示给用户的是window和view，activity所起的作用主要是处理一些逻辑问题，比如生命周期管理及建立窗口。
+通过ISessionWindow （AIDL Binder）与WMS跨进程通信
 
-wm = 接口viewManager，接口windowManager，windowsMangerImpl实现类，，《—windowsMangerGlobal是wmImpl内部的单例，viewrootImpl操作view
+wm = 接口viewManager，接口windowManager，windowsMangerImpl实现类，，《—
+windowsMangerGlobal是wmImpl内部的单例，viewrootImpl操作view
 
 
 ## 7.5 Android渲染机制--SurfaceFlinger
-SurfaceFlinger
+### SurfaceFlinger
 
 Android 图形架构使用了生产者——消费者模型。Surface 表示缓冲队列中的生产方，图像流最常见的消耗方是 SurfaceFlinger，该系统服务接收来自于多个源的数据缓冲区，组合它们，并将它们发送给显示设备。
 
-Android 应用程序为了能够将自己的 UI 绘制在系统的帧缓冲区上，它们就必须要与 SurfaceFlinger 服务进行通信。**SurfaceFlinger 服务运行在 Android 系统的 System 进程中，它负责管理 Android 系统的帧缓冲区（Frame Buffer）。**
+Android 应用程序为了能够将自己的 UI 绘制在系统的帧缓冲区上，它们就必须要与 SurfaceFlinger 服务进行通信。**SurfaceFlinger 服务运行在 Android 系统的 System 进程中，它负责管理 Android 系统的帧缓冲区（Frame Buffer 一般是GPU显存上）。**
 SurfaceFlinger 的职责
 
 SurfaceFlinger 主要有以下几个职责：
@@ -1758,6 +2106,38 @@ SurfaceFlinger 主要有以下几个职责：
     管理 VSYNC 事件
 
 ![[f3c207c30635fd3be72b2f2d76eba1ef.png]]
+
+
+### VSync事件/信号
+作为严重影响Android口碑问题之一的UI流畅性差的问题，首先在Android 4.1版本中得到了有效处理。
+其解决方法就是本文要介绍的Project Butter。Project Butter对Android Display系统进行了重构，引入了三个核心元素，即`VSYNC`、`Triple Buffer`和`Choreographer`。其中，VSYNC是理解Project Buffer的核心。
+VSYNC是Vertical Synchronization（垂直同步）的缩写，是一种在PC上已经很早就广泛使用的技术
+
+手机的屏幕都是60Hz的刷新率，系统为了配合屏幕的刷新频率，每过16.6ms就会发出Vsync信号来通知应用进行绘制。如果每个Vsync周期应用都能完成渲染逻辑，那么应用的FPS就是60，给用户的感觉就是非常流畅。
+
+附：Android Display架构图
+![[0331a4df5fce4bf58a9a93af0c1650f1.png]]
+
+
+## Choreographer
+
+我们可以看下这个类的注释：**Coordinates the timing of animations, input and drawing**。  
+我翻译为**控制输入、动画。绘制的时机。**  
+可以看出这个类是告诉我们**何时**去执行**输入、动画和绘制**的。  
+
+Choreographer 的引入，主要是配合 Vsync，给上层 App 的渲染提供一个稳定的 Message 处理的时机，也就是 Vsync 到来的时候 ，系统通过对 Vsync 信号周期的调整，来控制每一帧绘制操作的时机. 目前大部分手机都是 60Hz 的刷新率，也就是 16.6ms 刷新一次，系统为了配合屏幕的刷新频率，将 Vsync 的周期也设置为 16.6 ms，每个 16.6 ms，Vsync 信号唤醒 Choreographer 来做 App 的绘制操作 ，这就是引入 Choreographer 的主要作用
+
+还有一个注释也很重要：  
+**The choreographer receives timing pulses (such as vertical synchronization) from the display subsystem then schedules work to occur as part of rendering the next display frame.**  
+下面是个人的翻译：  
+**Choreographer从显示的子系统中接受到类似垂直同步的时间脉冲，然后安排在下一帧中要呈现的工作。**  
+这个注释告诉我们Choreographer要干两件事:
+
+- 接收垂直同步的时间脉冲，
+- 安排在下一帧中要做的工作。
+
+
+
 ## 7.6 沉浸式
 
 安卓的可以分为三个阶段
@@ -1970,7 +2350,7 @@ fun Context.queryBatteryOptimizeStatus():Boolean{
 作者：Halifax
 链接：https://juejin.cn/post/7003992225575075876
 
-# 10.AnsycTask分析
+# 10.AnsycTask分析（弃用）
 
 已被**弃用**。官方推荐**协程**。
 
@@ -1998,7 +2378,7 @@ fun Context.queryBatteryOptimizeStatus():Boolean{
 
 # 11.Okhttp源码分析
 
-主框架流程图：![](C:\Users\乌鸦\Documents\pic\3631399-0626631d246373a4.png)
+主框架流程图：
 
 ![](3631399-0626631d246373a4.png)
 
@@ -2973,8 +3353,8 @@ Glide在加载资源的时候，如果是在Activity，Fragment这一类有生�
 通过引入GIFLIB在native层解码GIF,这样一来内存消耗以及CPU的使用率都可以得到明显的降低和提升.其次通过FrameSequenceDrawable的双缓冲机制进行绘制GIF动画,这样就不需要在Java层的BitmapPool中创建多个Bitmap了.
 
 # 17.SharedPreferences
-
  在内存中会有缓存。线程不安全。
+ [[#39.MMKV 与SP]]
 
 #  18.Handle, Looper,Message
 
@@ -3037,7 +3417,7 @@ public class Looper {
 
 消息的载体，实现了parcelable接口
 
-public int what 标识符，用来识别 message，自带用一个message pool，通过Message.obtain()从全局池中返回一个message实例，避免多次创建message（如new Message）
+public int what 标识符，**用来识别 message，自带用一个message pool，通过Message.obtain()从全局池中返回一个message实例，避免多次创建message（如new Message）**
 
 
 
@@ -3054,6 +3434,8 @@ Handler target 指代此 message 对象对应的 Handler
 
 
 messageQueue。enenque（message）里面会上锁
+
+![[v2-50dc75acb87d6cd3b73862cedfb3d674_720w.webp]]
 
 ## 18.3 Handler
 
@@ -3073,7 +3455,11 @@ HandlerThread有**自己的内部Looper对象**，可以进行looper循环；
 ## **18.5 消息屏障SyncBarrier**
 ### SyncBarrier的介绍
 
+我们知道无论是应用启动还是屏幕刷新都需要完整绘制整个页面内容，目前大多数手机的屏幕刷新率为60Hz，也就是耳熟能详的16ms刷新一次屏幕。那么问题来了，如果主线程的消息队列待执行的消息非常多，怎么能保证绘制页面的消息优先得到执行，来尽力保证不卡顿呢
+
 SyncBarrier大家又称它为同步屏障，这是安卓线程消息队列里面的一个新增加的东西，它是一种Handler中的同步屏障机制。**简单可以理解安卓在Hanlder的处理上增加了优先级，优先级最高的就是SyncBarrier。**
+
+
 Handler中的Message可以分为两类：
 - 同步消息体（优先级高）
 - 异步消息体（优先级低）
@@ -3114,7 +3500,12 @@ private int postSyncBarrier(long when) {
 ```
 
 当队列中出现SyncBarrier（具体实现上就是Message#target为null）时，**就会忽略所有异步消息体，寻找同步消息体，然后优先处理它**，这些API全部都是hide的，也就是说app中是无法使用的，谷歌设计初衷也是系统开发人员自己用的
+
 消息队列这东西是在安卓一诞生就有了的东西，大部分时候它也没有什么问题。但有一个事情，就是安卓操作系统的UI流畅度远不及水果平台（iOS），原因就是在于水果平台的UI渲染是整个系统中最高优先执行。于是就有了SyncBarrier机制，这东西就是为了让消息队列有优先级，它发送的消息将会是最高优先级的，会被优先处理，这样来达到UI优先渲染，达到提高渲染速度的目的
+
+**对于异步消息，Looper会遍历消息队列找到异步消息执行，确保像刷新屏幕等高优任务及时得到执行。同步消息得不到处理，这就是为什么叫同步屏障的原因。当使用了同步屏障，记得通过`removeSyncBarrier`移除，不然同步消息不能正常执行。**
+
+**当然，正常情况开发者也不能手动发送和移除同步屏障，因为它们都被hide注释了**
 
 ### SyncBarrier的发送
 
@@ -3123,14 +3514,15 @@ private int postSyncBarrier(long when) {
 ### SyncBarrier的应用
 
 前面说到SyncBarrier并不是给app开发同学用的，很多相关的接口并没有开放出来，这是为了提高UI渲染而设计的东西。因此这东西主要是用在了UI渲染过程中。**仔细查看ViewRootImpl的源码可以发现，每次渲染View之前都会先给主线程插入SyncBarrier**，以挡住异步消息体，保证渲染被主线程优先执行
-SyncBarrier的泄露
+
+### SyncBarrier的泄露
 
 Barrier消息像一道栅栏，将消息队列里的普通消息先拦住，多数情况下是正常，但一旦异常，则很容易发生ANR，且ANR的trace都是莫名其妙的，但是也有些情况，是Barrier引起的trace就停在nativePollOnce()，当然这里指的是小部分情况，而非所有的nativePollOnce()都是SyncBarrier引起的，具体情况具体分析
 
     正常情况：渲染刷新类先优先执行，等执行完以后，撤掉栅栏，普通消息（包括会导致ANR的消息）得以继续执行
     异常情况：Barrier存在泄漏，导致无法释放栅栏，普通消息卡住不动，UI假死，如果期间有Server或者Provider等消息超时，就会引发ANR
 
-一旦发生Barrier的泄露，在取消息的时候优先进入同步屏障的逻辑，主线程会过滤掉所有非异步消息!msg.isAsynchronous()，一直在死循环中出不来，只有移除当前的同步屏障后，才得以解开
+一旦发生Barrier的泄露，在取消息的时候优先进入同步屏障的逻辑，**主线程会过滤掉所有非异步消息!msg.isAsynchronous()**，一直在死循环中出不来，只有移除当前的同步屏障后，才得以解开
 ```java
 if (msg != null && msg.target == null) {
     do {
@@ -3144,6 +3536,17 @@ if (msg != null && msg.target == null) {
 如下图，正常情况下是执行1，4，5，2，3，6，而异常情况是Barrier在此没有被移除，导致2，3，6都无法执行
 
 ![[6f29502f8ffe416ead3d5c6f571fc31d.png]]
+
+### 如何避免Sync Barrier搞鬼
+
+前面提到过，这套东西都是Frameworks层内部的机制，并没有开放给app使用，而Frameworks内部的逻辑一般来说还是相当健壮的，绝大多数时候并不会出问题。当然了，各个厂商内部搞的各种所谓优化，倒是有可能会引发问题。
+
+在实际开发过程中，引发Sync barrier的最多场景就是自定义View。**对于自定义View，是能够在非主线程调用其invalidate的，当有大量的非主线程调用invalidate时，就有可能恰好与主线程的渲染发生交互**，具体case非常corner要刚巧非主线程在postInvalide，**然后主线程也刚巧在发送异步消息，就可能使得Sync barrier没有被移除，从而导致问题。**
+
+这就需要我们在编码阶段做好封装，对于自定义View的刷新触发逻辑做好封装，做一下线程切换，以保证是在主线程里面执行invalidate。因为暴露出去的接口，是没有办法控制的，你没有办法让所有调用者都在主线程里面调用你的接口
+
+### 线程阻塞和唤醒/nativePollOnce和wake()
+nativePollOnce是在
 
 
 ## 18.6 View.post
@@ -3754,7 +4157,7 @@ RecyclerView的缓存分为四级
 - **RecycledViewPool **用来缓存ViewHolder用，如果多个RecyclerView之间用setRecycledViewPool(RecycledViewPool)设置同一个RecycledViewPool，他们就可以共享ViewHolder 
 
 
-
+```java
 public final class Recycler {
             //一级缓存中用来存储屏幕中显示的ViewHolde
         final ArrayList<ViewHolder> mAttachedScrap = new ArrayList<ViewHolder>();
@@ -3773,8 +4176,7 @@ public final class Recycler {
         //默认屏幕外缓存大小。
         private static final int DEFAULT_CACHE_SIZE = 2;
         }
-
-
+```
 
  **mAttachedScrap** 与 **mChangedScrap** （并称**scrap**缓存）这两个缓存一般是说的布局的时候的缓存（比如调用remove，notifyItemRangeChanged 等等）。
  布局分为pre-layout与post-layout，两个布局的整体流程都差不多：detachViewAt(移除view从ViewGroup 即recyclerView) -> recycler.scrapView（缓存页面上的view到mAttachedScrap 或者mChangedScrap）->fill(重新布局)
@@ -3789,9 +4191,6 @@ public final class Recycler {
 
 一次notifyDataSetChange会触发两次onBindViewHolder(), 包括初次创建适配器时
 
-```
-
-```
 
 #  26.启动crash捕获
 
@@ -3898,9 +4297,96 @@ destroyItem是fm进行了remove
    
    ART的解决:在ART中,它将Java分了一块空间命名为Large-Object-Space,**这块内存空间的引入用来专门存放large object**。同时ART又引入了moving collector的技术,即将不连续的**物理内存块进行对齐**.对齐了后内存碎片化就得到了很好的解决.Large-Object-Space的引入一是因为moving collector对大块内存的位移时间成本太高,而且提高内存的利用率 根官方统计，ART的内存利用率提高10倍了左右。
 
+
+## dex结构
+dex文件结构, 与class的区别在与索引头区里，class文件直接是
+![[5bd2a1148993118ec8377b58b474092a.jpg]]
+## odex文件结构
+
+Odex文件的结构可以理解为dex文件的一个超集。它的结构如下图所示，odex文件在dex文件头部添加了一些数据，然后在dex文件尾部添加了dex文件的依赖库以及一些辅助数据。
+Dalvik虚拟机将dex文件映射到内存中后是Dalvik格式，在Android系统源码的dalvik/libdex/DexFile.h文件中它的定义如下。
+
+DexFile结构中存入的多为其他结构的指针。DexFile最前面的DexOptHeader就是odex的头，DexLink以下的部分被成为auxillary section,即辅助数据段，它记录了dex文件被优化后添加的一些信息。然而，DexFile结构描述的是加载进内存的数据结构，还有一些数据是不会加载进内存的，经过分析，odex文件结构定义整理如下.
+
+## dexopt和dex2oat
+Android提供了一个专门验证与优化dex文件的工具dexopt。其源码位于Android系统源码的dalvik/dexopt目录下，Dalvik虚拟机在加载一个dex文件时，通过指定的验证与优化选项来调用dexopt进行相应的验证与优化操作。
+
+### dexopt和dex2oat对比
+![[7182360-9c46c9a5683bf00f.webp]]
+通过上图可以很明显的看出 dexopt 与 dex2oat 的区别，前者针对 Dalvik 虚拟机，后者针对 Art 虚拟机。
+
+- dexopt 是对 dex 文件 进行 verification 和 optimization 的操作，其对 dex 文件的优化结果变成了 odex 文件，这个文件和 dex 文件很像，只是使用了一些优化操作码（譬如优化调用虚拟指令等）。
+    
+- dex2oat 是对 dex 文件的 AOT 提前编译操作，其需要一个 dex 文件，然后对其进行编译，结果是一个本地可执行的 ELF 文件，可以直接被本地处理器执行。
+    
+
+除此之外在上图还可以看到 Dalvik 虚拟机中有使用 JIT 编译器，也就是说其也能将程序运行的热点 java 字节码编译成本地 code 执行，所以其与 Art 虚拟机还是有区别的。Art 虚拟机的 dex2oat 是提前编译所有 dex 字节码，而 Dalvik 虚拟机只编译使用启发式检测中最频繁执行的热点字节码。
+
+  
+## 28.3常见问题
+
+应用程序如何突破dalvik.vm.heapsize 的限制。
+
+- 创建子进程。创建一个新的进程，那么我们就可以把一些对象分配到新进程的heap上了，从而达到一个应用程序使用更多的内存的目的。
+- 使用jni在native heap上申请空间（推荐使用）。nativeheap的增长并不受dalvik vm heapsize的限制。只要RAM有剩余空间，程序员可以一直在native heap上申请空间，当然如果 RAM快耗尽，memory killer会杀进程释放RAM。
+- 使用显存。使用 OpenGL textures 等 API ， texture memory 不受 dalvik vm heapsize 限制。
+
+  
+  
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
 # 29.LruCache
 
 LruCache是一种缓存策略，持有的是强引用，但是会控制在一个峰值下。**它内部维护了一个队列**，**每当从中取出一个值时**，**该值就移动到队列的头部**。**当缓存已满而继续添加时，会将队列尾部的值移除，方便GC**。LruCache用于内存缓存，在避免程序发生OOM和提高执行效率有着良好表现。
+
+**缓存系统的性能主要取决于查找数据和淘汰数据是否高效。** 下面，我们用递推的思路推导 LRU 缓存的实现方案，主要分为 3 种方案：
+
+- **方案 1 - 基于时间戳的数组：** 在每个数据块中记录最近访问的时间戳，当数据被访问（添加、更新或查询）时，将数据的时间戳更新到当前时间。当数组空间已满时，则扫描数组淘汰时间戳最小的数据。  
+    
+
+- 查找数据： 需要遍历整个数组找到目标数据，时间复杂度为 O(n)；
+- 淘汰数据： 需要遍历整个数组找到时间戳最小的数据，且在移除数组元素时需要搬运数据，整体时间复杂度为 O(n)。
+
+  
+- **方案 2 - 基于双向链表：** 不再直接维护时间戳，而是利用链表的顺序隐式维护时间戳的先后顺序。当数据被访问（添加、更新或查询）时，将数据插入到链表头部。当空间已满时，直接淘汰链表的尾节点。  
+    
+
+- 查询数据：需要遍历整个链表找到目标数据，时间复杂度为 O(n)；
+- 淘汰数据：直接淘汰链表尾节点，时间复杂度为 O(1)。
+
+- **方案 3 - 基于双向链表 + 散列表：** 使用双向链表可以将淘汰数据的时间复杂度降低为 O(1)，但是查询数据的时间复杂度还是 O(n)，我们可以在双向链表的基础上增加散列表，将查询操作的时间复杂度降低为 O(1)。  
+    
+
+- 查询数据：通过散列表定位数据，时间复杂度为 O(1)；
+- 淘汰数据：直接淘汰链表尾节点，时间复杂度为 O(1)。
+
+方案 3 这种数据结构就叫 “哈希链表或链式哈希表”，我更倾向于称为哈希链表，因为当这两个数据结构相结合时，我们更看重的是它作为链表的排序能力。
+
+
+
+Lru在linkHashMap就是第三种方案已经由内部实现，直接开启即可。
+```java
+public class LRUCache<K,V> extends LinkedHashMap<K,V> {
+    
+  private int cacheSize;
+  
+  public LRUCache(int cacheSize) {
+      super(16,0.75f,true);
+      this.cacheSize = cacheSize;
+  }
+
+  /**
+   * 判断元素个数是否超过缓存容量
+   */
+  @Override
+  protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
+      return size() > cacheSize;
+  }
+}
+
+
+```
+
+手动实现可以通过实现双向链表。
 
 ```
 **最不经常使用算法（LFU）：**这个缓存算法使用一个计数器来记录条目被访问的频率。通过使用LFU缓存算法，最低访问数的条目首先被移除。这个方法并不经常使用，因为它无法对一个拥有最初高访问率之后长时间没有被访问的条目缓存负责。
@@ -4075,9 +4561,6 @@ View继承关系图
 ![img](https://img-blog.csdn.net/20150624122408822?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvYmxlc3MyMDE1/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70/gravity/Center)
 
 
-
- 
-
 # 34.apk签名过程
 
 打开待签名apk----遍历条目-----跳过目录，文件
@@ -4137,42 +4620,27 @@ Activity间通过隐式Intent的跳转，在发出Intent之前必须通过resolv
 ActivityNotFoundException的异常。
 
 正例：
-
+```java
 public void viewUrl(String url, String mimeType) {
-
         Intent intent = new Intent(Intent.ACTION_VIEW);
-    
         intent.setDataAndType(Uri.parse(url), mimeType);
-    
         if (getPackageManager().resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY) != null) {
-    
                  startActivity(intent);
-    
          }else {//找不到指定的Activity
-    
         }
-
 }
+```
 
 反例
-
+```java
 Intent intent = new Intent();
-
 intent.setAction("com.example.DemoIntent");
-
 try {
-
         startActivity(intent);
-
-}catch (ActivityNotFoundException e) {
-
+		}catch (ActivityNotFoundException e) {
          e.printStackTrace();
-
 }
-————————————————
-版权声明：本文为CSDN博主「long_hai_d」的原创文章，遵循CC 4.0 BY-SA版权协议，转载请附上原文出处链接及本声明。
-原文链接：https://blog.csdn.net/long_hai_d/article/details/88017800
-
+```
 # 37.应用安全
 
 ## 37.1 反编译与防止反编译
@@ -4983,15 +5451,20 @@ Transform是Gradle的一个类似拦截器的功能，可以获取上一个Trans
 ## 卡顿是什么导致的？
 ## 卡顿时怎么观测到的？
 ###  表面上的直观看到的，开启帧率显式和GPU呈现模式
-GPU呈现模式
+### GPU呈现模式
 
 三条水平线：其中；绿色线是16ms线。
+
 	红色：“执行时间”，指的是Android渲染引擎执行盒子中这些绘制命令的时间
-
 	黄色： 指的是CPU和GPU会话时间
-
 	蓝色： 视图绘制所花费的时间，表示视图在界面发生变化（更新）的用时情况
 		当蓝色低于绿线时不会出现卡顿
+### Systrace分析
+Systrace 是 Android4.1 中新增的性能数据采样和分析工具。它可帮助开发者收集 Android 关键子系统（如 SurfaceFlinger/SystemServer/Kernel/Input/Display 等 Framework 部分关键模块、服务，View系统等）的运行信息，从而帮助开发者更直观的分析系统瓶颈，改进性能。
+
+Systrace 的功能包括跟踪系统的 I/O 操作、内核工作队列、CPU 负载以及 Android 各个子系统的运行状况等。
+
+### android studio profiler 性能分析
 
 ### 参考了ANR-WatchDog机制**
 
@@ -5161,6 +5634,8 @@ GLsurface
  }
  
  ```
+#### 3.Native导致的泄露
+
 
 # 57. NDK开发
 
@@ -5170,8 +5645,27 @@ GLsurface
 `NDK`全称`Native Development Kit`，是Android的一个开发工具包,与Java并没有什么关系.
 `NDK`的核心目的之一是让您将 C 和 C++ 源代码构建为可用于应用的共享库。提供了交叉编译的功能.
 
-JNI，即 Java Native Interface ，是 Java 提供用来与其他语言通信的 api ，“其他语言”意味不止局限于 C 或 C++ ,也可以调用除 C 和 C++ 之外的语言，只是大多数情况下调用 C 或 C++ ; “通信”意味着 Java 和 其他语言之间可以相互调用，不止局限于 Java 调用其他语言，其他语言也可以主动调用 Java .
+### JNI
+即 Java Native Interface ，是 Java 提供用来与其他语言通信的 api ，“其他语言”意味不止局限于 C 或 C++ ,也可以调用除 C 和 C++ 之外的语言，只是大多数情况下调用 C 或 C++ ; “通信”意味着 Java 和 其他语言之间可以相互调用，不止局限于 Java 调用其他语言，其他语言也可以主动调用 Java .
+Android 中包含 native 进程和 java进程。
+	
+- 1、nativie 进程：采用C/C++ 实现，不包含dalvik实例的进程。/system/bin/目录下面的程序文件运行后都是以native进程形式存在的。  
+- 2、java进程：Android中运行与dalvik 虚拟机之上的进程。  
+	dalvik虚拟机的宿主进程由fork()系统调用创建，**所以每一个java进程都是存在于一个native进程中**，因此，java进程的内存分配比native进程复杂，因为进程中存在一个虚拟机实例。
+	- java程序发生OMM并不是表示RAM不足。而是堆内存超出了dalvik.vm.heapsize的限制。如果RAM真的不足，会发生什么呢？这时Android的memory killer会起作用，当RAM所剩不多时，memory killer会杀死一些优先级比较低的进程来释放物理内存，让高优先级程序得到更多的内存。
+	- dalvik.vm.heapsize 的显示，仅是对dalvik进程中java对的限制。对native 堆 并没有限制。所以在android程序中natvie 堆的内存可以很大
+### Native Memory
+也称为C-Heap，供Java Runtime进程使用的，**没有相应的参数来控制其大小，其大小依赖于操作系统进程的最大值。**
 
+Java应用程序都是在Java Runtime Environment（JRE）中运行，而Runtime本身就是由Native语言（如：C/C++）编写程序。Native Memory就是操作系统分配给Runtime进程的可用内存，它与Heap Memory不同，Java Heap 是Java应用程序的内存。（JVM只是JRE的一部分，JVM的内存模型属于另一话题）[[JAVA基础--JAVA数据结构--JVM#13.1 内存模型（JMM）]]
+
+Native Memory的主要作用如下：
+
+- 管理java heap的状态数据（用于GC）;  
+- JNI调用，也就是Native Stack；  
+- JIT（即时编译器）编译时使用Native Memory，并且JIT的输入（Java字节码）和输出（可执行代码）也都是保存在Native Memory；
+
+  
 JNI 的实现步骤很简单，如下：
 
 - 1.编写带有 native 方法的 Java 类
@@ -5341,11 +5835,9 @@ Android.mk是一个GNU Makefile文件，用于管理一个或多个模块（Modu
 ### 1.如何通信
 #### Java调用jni
 java中：
-c++中：Java_全限定名类名_方法名
+c++中：静态注册的：Java_全限定名类名_方法名
 
 #### JNI 中调用 Java 方法流程 :​
-
-
 
  ​① 获取 jclass 类型变量 :​
 
@@ -5364,14 +5856,41 @@ c++中：Java_全限定名类名_方法名
 
 来源：https://blog.51cto.com/u_14202100/5084702
 
+#### Native日志分析方式：
+
+将LogCat输出的Native崩溃日志，拷贝到crash.log（注意：最好以星号这行开始），并复制到build目录下的cmake编译后的so文件目录下，需要注意的是编译目录armeabi要和crash.log对应，cmake\debug\obj\arm-XXX目录下要有so文件,这个是编译的时候生成的。
+
+例如，我们运行的so文件是armeabi-v7a下的，那么拷贝到此下面，执行如下命令：
+```shell
+ndk-stack -sym C:\Users\maomao\Desktop\WukongMemo\MaoMaoMedia\player\build\intermediates\cmake\debug\obj\armeabi-v7a -dump crash.log
+```
+
+然后我们就能看到带文件名、函数名和行号的log日志了，进而我们就可以进一步排查和修复问题了。
+
+
+##### 注意事项：
+
+必须将 Logcat 设置为 No Filter 才能看到全部错误信息，否则只看到 signal 11 (SIGSEGV), code 1 (SEGV_MAPERR)  。
+
+简化方式，cd到build\intermediates\cmake\debug目录下，输入如下命令：
+```shell
+ndk-stack -sym obj/armeabi-v7a -dump obj/armeabi-v7a/crash.log
+```
+
 
 ### 2.原理分析
 JNIEnv* 介绍
+JNIEnv，即JNIEnvironment；字面意思就是JNI环境。其实它是一个与线程相关的JNI环境结构体。所以JNIEnv类型实际代表了Java环境。
+通过这个JNIEnv*指针，就可以对Java端代码进行操作。
+**与线程相关，不同线程的JNIEnv相互独立。 JNIEnv只在当前线程中有效。**
+Native方法不能将JNIEnv从一个线程传递到另一个线程中。相同的Java线程对Native方法多次调用时，传递给Native方法的JNIEnv是相同的。但是，一个本地方法可能会被不同的Java线程调用，因此可以接受不同的JNIEnv。
 
-    JNIEnv概念 : JNIEnv是一个线程相关的结构体, 该结构体代表了 Java 在本线程的运行环境。通过JNIEnv可以调用到一系列JNI系统函数。
+和JNIEnv相比，JavaVM可以在进程中各个线程间共享。理论上一个进程可以有多个JavaVM，但Android只允许一个JavaVM。需要强调在Android SDK中强调了额 " do not cache JNIEnv * "，要用的时候在不同的线程中通过JavaVM * jvm的方法来获取与当前线程相关的JNIEnv *。
+
+    JNIEnv概念 : JNIEnv是一个线程相关的结构体, 该结构体**代表了 Java 在本线程的运行环境。通过JNIEnv可以调用到一系列JNI系统函数。**
     JNIEnv线程相关性： 每个线程中都有一个 JNIEnv 指针。JNIEnv只在其所在线程有效, 它不能在线程之间进行传递。
 
-注意： 在C++创建的子线程中获取JNIEnv，要通过调用JavaVM的AttachCurrentThread函数获得。在子线程退出时，要调用JavaVM的DetachCurrentThread函数来释放对应的资源，否则会出错。
+注意： **在C++创建的子线程中获取JNIEnv，要通过调用JavaVM的AttachCurrentThread函数获得**。在子线程退出时，**要调用JavaVM的DetachCurrentThread函数来释放对应的资源**，否则会出错。
 
 JNIEnv 作用：
 
@@ -5383,7 +5902,6 @@ JNIEnv 作用：
 
 
 ​##### 1 . 全局引用作用域 :​
-
 
 
 ​与局部引用对比 :​ 全局引用与局部引用相对应 , 其作用域是全局的 , 局部引用只能在当前方法使用 ;

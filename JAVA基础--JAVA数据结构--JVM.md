@@ -74,7 +74,7 @@ hash算法获取下标，比较key内容和hashcode。
 - 从任一节点到叶子节点的所有路径都包含相同数目的**黑色**节点
 
 ////////////待补充
-
+![[v2-8967735f3b3da71eea178d5620596b3b_720w.webp]]
 ## 1.1.4 HashTable，HashSet
 
 **HashMap和HashTable的区别**
@@ -121,6 +121,8 @@ JDK1.7 中，ConcurrentHashMap 是由 **Segment** 数组结构和 **HashEntry** 
 ![[20170512160734275.png]]
 
 ![[20170512155609530.png]]
+
+
 # 2.线程和线程池
 [相关文档-锁机制](锁.md5)
 
