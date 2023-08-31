@@ -71,6 +71,7 @@ Wifi Driver:Wifi驱动；
 Audio Driver:音频驱动；P
 ower Management:电量管理驱动）等
 
+
 ###  五,系统启动流程
 
 相关扩展：[[#2.2.1 app启动流程]]
@@ -126,13 +127,14 @@ boot Rom
 	return;
 	}
 	onVmCreated(env);
-	if (startReg(env) < 0) {//注册jni
+	if (startReg(env) < 0) {//注册jni，内部有很多
 	ALOGE("Unable to register all android natives\n");
 	return;
 	}
 	```
 
 - -> 反射执行 ZygoteInit.main() 进入java层，執行java代碼
+	//zygoteInit.java zygote在java层的代理
 
 - -> java zygoteInit  **perload()加载系统类（各种应用层组件例如Textview），resources资源（例如 字体）
 	- peload是一个耗时操作，优化系统启动可以从这里出手
@@ -148,7 +150,7 @@ boot Rom
 		preloadTextResources(); //加载文字、字體资源
 
 
-- -> **zygoteInit 创建zygoyeServicer（zygoyeService基于socket通信）*
+- -> **zygoteInit 创建zygoteService（zygoyeService用于 socket通信）*
 
 - -> zygoteInit 通過jni調用  **forkSystemServer()进程 (创建第一个system server进程，之后的ams， atms(API29新增)，pks，wms都是由它创建)
 	- **SystemSever负责启动系统的各项服务,Android系统中Java世界的核心 Service都在这里启动**
@@ -161,18 +163,33 @@ boot Rom
 
 
 #### 补充点
-- （1）新进程fork zygote，能fork zygote中的资源的，dvm，jni等，每个进程就一个binder
+- （1）新进程fork zygote，能fork zygote中的资源的，dvm，jni等，每个进程就一个binder（指进程的binder，不是说app的binder，要分清）
 
 - （2）app请求zygote fork进程使用socket而不是用binder，因为binder支持异步调用（是有綫程池的），binder只有一个，调用的是zygote的binder，这个时候可能会等待binder的锁，**這時fork一個新进程，那麽他的的binder也可能在锁，但是无人通知，就会造成新进程binder死锁。
 
 
 ##### ServiceManager
-//一个独立的守护进程，管理了所有binder，即binder服务管家
+由init.rc配置，调用源文件service_manager.cpp或者frameworks/native/cmds/servicemanager/main.cpp启动。（不同android版本）
+
+一个独立的`守护进程`，管理了所有binder，即binder服务管家
 	- **1）初始化binder驱动**
 	- **2）将自身以“manager” 添加到 servicemanager 中的map集合中**
 	- **3）注册成为binder驱动的上下问管理者**
 	- **4) 给Looper设置callback,进入无限循环，处理client端发来的请求**
+
+```cpp
+int main(...){
+	...
+	ProcessState::initwithDriver()
+	...
+}
+```
+相关[[#BINDER]]
+
+补充（_守护进程_,在linux或者unix操作系统中在系统引导的时候会开启很多服务,这些服务就叫做守护进程）
 ##### Systemserver
+ 由zygoteInit 通過jni調用  **forkSystemServer()
+
 - 系统服务进程，启动了systemService
 - systemServerManager管理SysytemService
 - **各类service由`systemServerManager`管理，创建就添加到systemservicemanger中，获取也是通过systemservicemanger的binder获取service**
@@ -198,7 +215,10 @@ init是一个守护进程，为了防止init的子进程（zoygote进程）成�
 https://www.cnblogs.com/tsingke/p/9007563.html
 
 ### 2.Content Provider
+在Android技术持久化技术中，**包含着文件存储，SharedPreferences存储以及SQLite，在这些持久化技术中保存到数据都只能在当前应用程序中访问**，那么如何将数据共享给其他程序呢？那就要说到contentprovider
+
 由于Android系统中，数据基本都是私有的，处于一个沙箱环境，都是存放于“data/data/程序包名”目录下，所以要实现数据共享contentprovider是正确操作。
+创建ContentProvider对外提供接口，其他应用通过ContentResolver和scheme uri访问对应的方法
 底层也是通过binder进行app进程间通信
 
 [content Provide](https://www.jianshu.com/p/5e13d1fec9c9)
@@ -263,7 +283,9 @@ public class MyContentProvider extends ContentProvider {
 //根据号码获取联系人的姓名
 public void getContactNameByNumber() throws Exception {
     ContentResolver resolver = getContentResolver();
+    
     Cursor cursor = resolver.query(ContactsContract.Contacts.CONTENT_URI, new String[]{ContactsContract.Data.DISPLAY_NAME}, null, null, null);
+    
     if(cursor.moveToFirst()){
         String name = cursor.getString(0);
         Log.i(TAG, name);
@@ -276,13 +298,89 @@ public void getContactNameByNumber() throws Exception {
 
 ### sharedPrefenrence:(简介， 详细对比见39)
 
- SP 的底层是由Xml来实现的，操作SP的过程就是Xml的序列化和解析的过程。Xml是存储在磁盘上的，因此当我们频繁进行SP操作时，就是频繁进行序列化与解析，这就频繁进行I/O的操作，所以肯定会导致性能消耗。同时**序列化Xml是就是将内存中的数据写到Xml文件中**，由于DVM 的内存是很有限的，因此单个SP文件不建议太大，具体多大是没有一个具体的要求的，但是我们知道DVM 堆内存也就是**16M**，因此数据大小肯定不能超过这个数字的。其实 SP 设置的目的就是为了保存用户的偏好和配置信息的
+ SP 的底层是由Xml来实现的，**操作SP的过程就是Xml的序列化和解析的过程，并且存在了Map中。Xml是存储在磁盘上的，因此当我们频繁进行SP操作时，就是频繁进行序列化与解析，这就频繁进行I/O的操作，所以肯定会导致性能消耗。**
+ 同时**序列化Xml是就是将内存中的数据写到Xml文件中**，由于DVM 的内存是很有限的，因此单个SP文件不建议太大，具体多大是没有一个具体的要求的，但是我们知道DVM 堆内存也就是**16M**，因此数据大小肯定不能超过这个数字的。其实 SP 设置的目的就是为了保存用户的偏好和配置信息的,
+ 
+他会有缓存，并不是每次都去文件中读写，有一个以sharedPreference的名称为key(通过名称缓存一个file，以这个file为key)，对应这个sharedPerference的内容为value的静态的map来缓存整个应用中的sp，所以我们最好不要创建过多的小的sp，尽量合并，不然这个静态的map会很大。
+ 
+```java
+val sharedPreferences = getSharedPreferences("FIRST", MODE_PRIVATE)  
+val edit = sharedPreferences.edit()  
+edit.putInt("1123", 12323)  
+edit.apply()  //异步提交
+edit.commit()//同步提交
+```
+applay，commit，同步和异步，都会阻塞
+为什么呢？
+因为
 
-post，commit，同步和异步，都会阻塞
 【相关联系】
 [[#17.SharedPreferences]]
 [[#39.MMKV 与SP]]
 
+
+apply源码
+```java
+public void apply() {
+            finallongstartTime= System.currentTimeMillis();
+ 
+            finalMemoryCommitResultmcr= commitToMemory();
+            finalRunnableawaitCommit=newRunnable() {
+                    publicvoidrun() {
+                        try {
+                            mcr.writtenToDiskLatch.await();
+                        } catch (InterruptedException ignored) {
+                        }
+ 
+                        if (DEBUG && mcr.wasWritten) {
+                            Log.d(TAG, mFile.getName() + ":" + mcr.memoryStateGeneration
+                                    + " applied after " + (System.currentTimeMillis() - startTime)
+                                    + " ms");
+                        }
+                    }
+                };
+			// 将 awaitCommit 添加到队列 QueuedWork 中
+            QueuedWork.addFinisher(awaitCommit);
+ 
+            RunnablepostWriteRunnable=newRunnable() {
+                    publicvoidrun() {
+                        awaitCommit.run();
+                        QueuedWork.removeFinisher(awaitCommit);// 将 awaitCommit 从队列 QueuedWork 中移除
+                    }
+                };
+ 
+            SharedPreferencesImpl.this.enqueueDiskWrite(mcr, postWriteRunnable);
+ 
+            // Okay to notify the listeners before it's hit disk// because the listeners should always get the same// SharedPreferences instance back, which has the// changes reflected in memory.
+            notifyListeners(mcr);
+        }
+```
+
+从上面我们可以看到apply是把任务添加到了queuework中，
+**Android系统为了保障在页面切换，也就是在多进程中sp文件能够存储成功，在ActivityThread的handlePauseActivity和handleStopActivity时会通过QueuedWork.waitToFinish保证这些异步任务都已经被执行完成**。如果这个时候过渡使用apply方法，则可能导致onpause，onStop执行时间较长，从而导致ANR。
+Queuework：这是个内部 工具 类，用于跟踪那些未完成的或尚未结束的全局任务（onPause，onStop检查），新任务通过方法 queue
+加入。添加 finisher
+的runnables，由 waitToFinish
+方法保证执行，用于保证任务已被处理完成。
+
+```java
+    private void handlePauseActivity(IBinder token, boolean finished,
+                boolean userLeaving, int configChanges, boolean dontReport, int seq) {
+           ......
+                r.activity.mConfigChangeFlags |= configChanges;
+                performPauseActivity(token, finished, r.isPreHoneycomb(), "handlePauseActivity");
+     
+                // Make sure any pending writes are now committed.if (r.isPreHoneycomb()) {
+                    QueuedWork.waitToFinish();
+                }
+     
+               ......
+        }
+```
+
+
+
+你肯定要问，为什么过渡使用apply方法，就有可能导致ANR？那我们只能看QueuedWork.waitToFinish();当任务未完成的时候会阻塞。
 
 ### SQLite
 SQLite是一个轻量级的数据库，支持基本SQL语法，是常被采用的一种数据存储方式。Android为此数据库提供了一个名为SQLiteDatabase的类，封装了一些操作数据库的API
@@ -410,7 +508,17 @@ android数据类型所占字节数：
 
 ## 3. Android版本特性简述
 
-- ### **5.0 art**
+- ### **5.0 **
+	-使用ART虚拟机
+	-禁止隐式启动service，要先androidmanifest声明再显式调用
+	```java
+	//禁止隐式
+	Intent intent = new Intent();  
+	intent.setAction("com.example.user.firstapp.FIRST_SERVICE");  
+	bindService(intent,coon,Service.BIND_AUTO_CREATE);  
+	或者
+	startService(intent);
+	```
 
 - ### 6.0
 
@@ -422,10 +530,12 @@ android数据类型所占字节数：
 
 - ### 8.0多显示器
 
-系统不允许后台应用创建后台服务（service）。因此Android 8.0引入了一种全新的方法，即 Context.startForegroundService()，以在前台启动新服务。
-workmanager和schedulerjob进行轮询。
-在系统创建服务后，应用有五秒的时间来调用该服务的 startForeground()方法以显示新服务的用户可见通知。如果应用在此时间限制内未调用startForeground()，则系统将停止服务并声明此应用为ANR。
-原文链接：https://blog.csdn.net/haoyuegongzi/article/details/112000275
+	- **系统不允许==后台应用== 创建后台服务（service）。因此Android 8.0引入了一种全新的方法，即 Context.startForegroundService()，以在前台启动新服务。**想要在后台运行服务只能是前台应用。
+	workmanager和schedulerjob进行轮询。
+	在系统创建服务后，应用有五秒的时间来调用该服务的 startForeground()方法以显示新服务的用户可见通知。如果应用在此时间限制内未调用startForeground()，则系统将停止服务并声明此应用为ANR。
+	原文链接：https://blog.csdn.net/haoyuegongzi/article/details/112000275
+
+不允许隐式广播
 
 - ### 9.0支持刘海屏
 
@@ -506,8 +616,6 @@ Android 10 之前的文件系统 , 内存分为两块 , 应用私有目录 , 和
 
 强制分区存储
 
-强制分区存储
-
 https://www.jianshu.com/p/7875ac6139a3
 
 https://www.jianshu.com/p/7155b224ddfc
@@ -523,7 +631,8 @@ Android 11之后，储存权限更加严格，添加了一条叫做`MANAGE_EXTER
 ** Android 中所有文件存储 , 都会将文件的索引存储在[数据库](https://cloud.tencent.com/solution/database?from_column=20421&from=20421)中 , 在 /data/data/com.android.providers.media **目录下的文件就是专门用于管理该数据库的 ;需要使用 MediaStore 进行文件操作,无法直接使用new file()，但是可以复制到沙盒空间中（data下)进行new file**
 
 
-
+- 12
+	禁止==后台启动前台服务==
 - 13.0
 
 ## 4.apk打包流程
@@ -533,11 +642,11 @@ Android 11之后，储存权限更加严格，添加了一条叫做`MANAGE_EXTER
 dex生成、instant run等看 [[#45.热修复]]
 
 
-![[(dcc282fd0bcc45f686473d2c23a9232f~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.webp)]]
+![[dcc282fd0bcc45f686473d2c23a9232f~tplv-k3u1fbpfcp-zoom-in-crop-mark 4536 0 0 0.webp]]
 
 ### 1.打包资源文件，生成R.java文件
 
-aapt（打包工具Android Asset Packaging Tool）来打包res资源文件，生成R.java、resources.arsc和res文件。
+aapt（打包工具Android Asset Packaging Tool）来打包res资源文件，生成==R.java、resources.arsc和res文件。==
 
 **AAPT2**（Android 资源打包工具）是一种构建工具，Android Studio 和 Android Gradle 插件使用它来编译和打包应用的[资源](https://link.zhihu.com/?target=https%3A//developer.android.com/guide/topics/resources/providing-resources)。AAPT2 会解析资源、为资源编制索引，并将资源编译为针对 Android 平台进行过优化的二进制格式。
 **1、编译：将资源文件编译为二进制格式。**
@@ -613,8 +722,6 @@ productFlavors {       
 
 ### 代码仓库
 优先使用国内仓库，依赖的版本也写成固定的版本号，而不是动态的版本号，这样不用每次都打包都会去检查更新，而且最新版可能会导致一些报错或者bug。
-
-
 ### 将图片转换为 WebP 格式
 [WebP](https://developers.google.com/speed/webp/?hl=zh-cn) 是一种既可以提供有损压缩（像 JPEG 一样）也可以提供透明度（像 PNG 一样）的图片文件格式，不过与 JPEG 或 PNG 相比，WebP 格式可以提供更好的压缩。
 
@@ -859,38 +966,54 @@ onRestoreInstanceState()方法的作用
 
 ![[截图20230815033305.png]]
 
-- > ** launcher调用startActivitySafely()通过 SERVICE_MANAGER 获取ams**
+- > **. launcher调用startActivitySafely()通过 SERVICE_MANAGER 获取ams**
 	```java
 	default boolean startActivitySafely(
 	View v, Intent intent, @Nullable ItemInfo item) {
 	....
-intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);//启动一个新的activtiy栈
+	intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);//启动一个新的activtiy栈
 	....
-if (isShortcut) {
+	if (isShortcut) {
 	// Shortcuts need some special checks due to legacy reasons.
-	startShortcutIntentSafely(intent, optsBundle, item);
-	} else if (user == null || user.equals(Process.myUserHandle())) {
-	// Could be launching some bookkeeping activity
-	context.startActivity(intent, optsBundle);
-	} else {
-	context.getSystemService(LauncherApps.class).startMainActivity(
-	intent.getComponent(), user, intent.getSourceBounds(), optsBundle);
+		startShortcutIntentSafely(intent, optsBundle, item);
+		} else if (user == null || user.equals(Process.myUserHandle())) {
+		// Could be launching some bookkeeping activity
+		context.startActivity(intent, optsBundle);
+		} else {
+		context.getSystemService(LauncherApps.class).startMainActivity(
+		intent.getComponent(), user, intent.getSourceBounds(), optsBundle);
+		}
+	....
+	} catch (NullPointerException | ActivityNotFoundException | SecurityException e) {
+	.....
 	}
-....
-} catch (NullPointerException | ActivityNotFoundException | SecurityException e) {
-.....
-}
 	```
 - >通知ams通知要启动一个activity 
 - > ams通过binder通知**launcher进入** **pause状态**
 - > launcher通过binder**通知ams准备就绪** 
-- > **AMS创建一个ActivityThread实例**(其实是一个binder) 
-- -> ams通知activityThread调用main方法 
-- > acitvitythread创建返回一个 **applicationThread 类型的binder** 用于activityThread与ams通信。
-- > 调用activtiyManagerServive.attch(   )进行绑定
-- -> ams将入口 activity 等信息通过binder传递给 app
-- > binder调用bindAppliction()方法根据ams发过来的包信息创建applictioncontext，初始化资源信息
- - >初始化 Instrumentation，app通过performLanchActivity()方法启动对应入口的activity , 进入activtiy启动流程
+- > **AMS创建一个通知zygote fork一个app进程
+- > ams通知activityThread调用main方法 
+	
+- > acitvitythread创建返回一个==**applicationThread 类型的binder**== 用于activityThread与ams通信。
+	- **applicationThread 是单例，main中new acitvitythread就跟随该类初始化了
+- > 调用==acitvitythread.attch(   )与ams 进行绑定applicationThread==
+	- 如果看过源码，可能会在该attach中的if else 疑惑，其实启动app的是走if内代码，也就是下方的代码，如果是意外重启的才会走else，其else内就直接创建了appcotnext
+	```java
+	 attach( .... ){
+		RuntimeInit.setApplicationObject(mAppThread.asBinder());  
+		final IActivityManager mgr = ActivityManager.getService();  
+		try {  
+		    mgr.attachApplication(mAppThread, startSeq);  
+		} catch (RemoteException ex) {  
+		    throw ex.rethrowFromSystemServer();  
+		}
+	 }                   
+
+	```
+-  > ams将入口 activity 信息==ActivityClientRecord==等信息通过binder传递给 app
+	- > ** binder调用`bindAppliction( )`->handleBindApplication（）方法根据ams发过来的包信息创建 applictioncontext，初始化资源信息
+	- handleBindApplication内还初始化了contentProvider，这就是为什么contentProvider的onCreate比app的早的原因**
+- >初始化 Instrumentation，app通过performLanchActivity()方法启动对应入口的activity , 进入activtiy启动流程
 
 注意：版本不同会代用不一致，比如创建application的方式或者是启动activity的方式
 
@@ -966,7 +1089,8 @@ App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局�
 	(3) 减少布局的层次,并且生命周期回调的方法中尽量减少耗时的操作（解析viewtree）
 	可以使用idlehandle
 
-
+#### StartUp
+要解决的问题，任务执行顺序问题和并发执行。
 
 ### 2.2.2 activity启动流程
 
@@ -979,9 +1103,10 @@ App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局�
 ->**通过binder - applicationThread 跨进程调用 ActivityTaskManagerService.startActivity()**
 
 ->ams 通过 applicationThread 回调ActivityThread.startActivityNow ，并传回一个token
-- ams解析了
+	- ams解析了activity信息
 -》ActivtiyThread.handleLaunchActivity()-》ActivtiyThread.performLanchActivity()
-- mInstrumentation.newActivtiy创建对象activtiy-》没有appliction则创建appliction或者获取已有（现有activity再有appliction） 
+- 创建aactivityContext
+- 调用mInstrumentation.newActivtiy创建对象activtiy-》没有appliction则创建appliction或者获取已有（现有activity再有appliction） 
 		- 》調用activtiy.ATTCH（传入了大量参数，instrument等等
 		- 》**在Activtiy.attch(....)方法中創建phonewindow，windowsmanager**
 		
@@ -1121,6 +1246,7 @@ public class MyService extends Service{
 			R.mipmap.ic_launcher))
 		.setContentIntent(pi)
 		.build();
+	//启动前台
 	startForeground(1,notification);
 }
 
@@ -1154,10 +1280,10 @@ public class MyService extends Service{
 (4)Service通常位于后台运行，它一般不需要与用户交互，因此Service组件没有图形用户界面。Service组件需要继承Service基类。Service组件通常用于为其他组件提供后台服务或监控其他组件的运行状态。
 
 **(5)onStartCommand方法返回有4种** 
- \- START_STICKY 
- \- START_NOT_STICKY 
- \- START_REDELIVER_INTENT 
- \- START_STICKY_COMPATIBILITY 
+- START_STICKY 
+- START_NOT_STICKY 
+- START_REDELIVER_INTENT 
+- START_STICKY_COMPATIBILITY 
 
 **START_STICKY**：如果service进程被kill掉，保留service的状态为开始状态，但不保留递送的intent对象。随后系统会尝试重新创建service，由于服务状态为开始状态，所以创建服务后一定会调用onStartCommand(Intent,int,int)方法。如果在此期间没有任何启动命令被传递到service，那么参数Intent将为null。
 
@@ -1235,15 +1361,55 @@ onUnbind：
 
 onReBind：旧的组件解绑后与新组件绑定会调用
 
-6.JobService
-
 ## *6*. JobService
 
 **JobService是Android针对后台任务优化推出的新组件，和**Servie**有着细致的关系又有很多不同。在需要执行后台任务的时候，面对JobService和Service，应该如何选择？
 
+## 使用
+继承自JobService实现startJob和onStop。记得在清单中注册service和**android.permission.BIND_JOB_SERVICE** 权限。
+```java
+@RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+public class DemoJobService extends JobService {
+    @Override
+    public boolean onStartJob(JobParameters jobParameters) {
+        Log.d("tag","onStartJob");
+        return false;
+    }
+
+    @Override
+    public boolean onStopJob(JobParameters jobParameters) {
+        Log.d("tag","onStopJob");
+        return false;
+    }
+}
+```
+
+JobService是由JobSchedulerService管理的。JobScheduler
+```java
+
+        int jobId = 1;
+        JobScheduler jobScheduler = (JobScheduler)getSystemService(Context.JOB_SCHEDULER_SERVICE);
+    
+    //
+        ComponentName jobService = new ComponentName(getPackageName(),
+                DemoJobService.class.getName());
+                
+        JobInfo jobInfo = new JobInfo.Builder(jobId, jobService)
+                .setPeriodic(15 * 60 * 1000)//重复执行周期
+                .setPersisted(true)
+                .setRequiredNetworkType(JobInfo.NETWORK_TYPE_ANY)
+                .build();
+                
+        if(jobScheduler != null){
+        
+            jobScheduler.schedule(jobInfo);
+        }
+```
+
+
 #### **原理上的对比**
 
-***Service\***   
+***Service***   
 
 App通过Context发出请求，AMS接收请求后进行调度，通知App侧进行创建，开始，停止(或绑定，解绑)和销毁Service。
 
@@ -1253,7 +1419,7 @@ App通过**JobScheduler**接口发出创建JobService请求，JobSchedulerServic
 
 #### **执行条件的对比**
 
-***Service\***   
+***Service***   
 
 Service的启动并没有什么特定的条件设置，如果说非要有什么具体的执行条件的话，就是App根据业务逻辑在适当的时候调用startService()或者bindService()。
 
@@ -1289,7 +1455,7 @@ onStartCommand()返回START_STICKY可以告诉AMS在被停止后自动启动。
 
 ***JobService***   
 
-onStopJob()返回true，即可设置在被强制停止后可以再度启动。除了这些原理上的细微区别，那么你更应该关注实际应用上的不同。
+**onStopJob()返回true，即可设置在被强制停止后可以再度启动。** 除了这些原理上的细微区别，那么你更应该关注实际应用上的不同。
 
 #### **实际应用**
 
@@ -1301,6 +1467,63 @@ onStopJob()返回true，即可设置在被强制停止后可以再度启动。�
 
 适合不需要常驻后台，不需要立即执行，在某种条件下触发，执行简单任务的场景。比如联系人信息变化后的快捷方式的更新，定期的更新电话程序的联系人信息，壁纸更改后去从壁纸提取颜色的后台任务。
 ## 7. WorkManager
+WorkManager 是一个 Android Jetpack 扩展库，它可以让您轻松规划那些可延后、异步但又需要可靠运行的任务。对于绝大部分后台执行任务来说，使用 WorkManager 是目前 Android 平台上的最佳实践。
+
+WorkManager的**定时任务最短也需要15分钟**
+1. 创建自己的Worker类
+新建一个TestWorker继承自Worker，里面只有一个重写的方法dowork()
+```java
+/**
+ * 作者：Vaccae
+ * 邮箱：3657447@qq.com
+ * 创建时间： 10:43
+ * 功能模块说明：WorkManager测试类
+ */
+class TestWorker(context: Context, parameters: WorkerParameters) : Worker(context,parameters) {
+ 
+    private var TAG= "taskjob";
+    private var times =0;
+    override fun doWork(): Result {
+        times++;
+        var data=Data.Builder().putInt("times",times).build();
+        if(times<10){
+            Log.i(TAG, "我是Work的测试")
+            return Result.success()
+        }else{
+            Log.i(TAG, "重新测试")
+            return Result.failure()
+        }
+    }
+}
+```
+从 doWork() 返回的 Result 会通知 WorkManager 服务工作是否成功，以及工作失败时是否应重试工作。
+    Result.success()：工作成功完成。
+    Result.failure()：工作失败。
+    Result.retry()：工作失败，应根据其重试政策在其他时间尝试。
+
+
+2.任务队列加入自己work
+```java
+//创建WorkManager任务
+        val periodicwork =
+            PeriodicWorkRequestBuilder< TestWorker >(5000, TimeUnit.MILLISECONDS).build()
+            
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "test", ExistingPeriodicWorkPolicy.REPLACE,
+            periodicwork
+        )
+```
+
+
+### JobScheduler 和 WorkManager
+
+- JobScheduler和WorkManager都**只能在APP存活的时候执行，但是定时器是一直工作的。**
+
+- 关闭APP再启动，**JobScheduler并不能够直接继续运行，但是WorkManager可以。**
+
+- 如果重启APP的时候，WorkManager任务的计时器应该已经执行了一次或多次，则会立即开始执行。
+
+- 重启App之后WorkManager如果直接执行了一个任务，**则从这个时候开始算新的周期，不会按旧有周期走。**
 
 # 4.Android 运行时权限要点
 
@@ -1323,8 +1546,6 @@ android app默认**无任何权限**，必须在AndroidManifest中声明
 **要点二：**如果授予权限为危险权限，系统会明确用户授予该权限。 android发出权限请求方式取决于由系统版本(即targetSdkVersion) 
 
 **要点三：**运行在 Android 6.0 及以上版本，App targetSdkVersion 大于23，**则需要在运行时向用户请求权限**，**并且需要在 App 使用相关的权限之前检查自身是否已被授予该权限。**
-
-
 
 ```java
  if (ContextCompat.checkSelfPermission(getApplication(), Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {    
@@ -1408,6 +1629,10 @@ public void onRequestPermissionsResult(int requestCode, String[] permissions, in
 | MontionEvent.ACTION_MOVE   | 屏幕滑动     | 0或多次              |
 | MontionEvent.ACTION_UP     | 屏幕抬起     | 0或1                 |
 | MontionEvent.ACTION_CANCEL | 滑动超出边界 | 0或1                 |
+
+ACTION_POINTER_DOWN：双指及多指按下动作（仅在第二根手指或者大于第二根手指按下时有效）
+ACTION_POINTER_UP：双指及多汁抬起动作（仅在第二根手指或者大于第二根的手指抬起时有效）
+
 
 ## 5.2要点
 
@@ -1733,6 +1958,43 @@ requestLayout会直接递归调用父窗口的requestLayout，
 ![](pic/16925694-c76eba5f99c1dfae.webp)
 
 一般来说，只要刷新的时候就调用invalidate，需要重新measure就调用requestLayout，后面再跟个invalidate（为了保证重绘），这是我个人的理解。
+### Measure
+`measure`函数接下来的这一段主要是为了判断是否需要进行重新测量，毕竟每次测量也不容易。
+
+```java
+    //用于存储上次测量的结果
+        long key = (long) widthMeasureSpec << 32 | (long) heightMeasureSpec & 0xffffffffL;
+        if (mMeasureCache == null) mMeasureCache = new LongSparseLongArray(2);
+    
+        //view是否需要强行刷新，调用froceLayout
+        final boolean forceLayout = (mPrivateFlags & PFLAG_FORCE_LAYOUT) == PFLAG_FORCE_LAYOUT;
+    
+        //判断此次的widthMeasureSpec与heightMeasureSpec是否与上次相等
+        final boolean specChanged = widthMeasureSpec != mOldWidthMeasureSpec
+                || heightMeasureSpec != mOldHeightMeasureSpec;
+        
+        //判断此次测量模式是否精确，不是精确的可能需要重新测量
+        final boolean isSpecExactly = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY
+                && MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY;
+    
+        //判断此次测量大小是否与已保存的大小一致，不是一致可能需要重新测量         
+        final boolean matchesSpecSize = getMeasuredWidth() == MeasureSpec.getSize(widthMeasureSpec)
+                && getMeasuredHeight() == MeasureSpec.getSize(heightMeasureSpec);
+                
+         //如果specChanged为false,即宽高measureSpec与上次都相等，不需要重新测量；true则进一步检查其他条件
+         //sAlwaysRemeasureExactly主要用于判断LinearLayout在旧版本的不同测量模式都会返回不同的测量结果，小于Android 6.0为true,大于为false；所以但小于Android 6.0需要重新测量
+         //如果isSpecExactly测量模式是非精确模式需要重新测量
+          //如果matchesSpecSize与已保存大小不一致需要重新测量
+        final boolean needsLayout = specChanged
+                && (sAlwaysRemeasureExactly || !isSpecExactly || !matchesSpecSize);
+​
+```
+
+`needsLayout`就是根据上面相关变量的值共同判断是否需要重新测量的最终结果。也可以通过下图一览上面的注释。
+调用`forceLayout`或`requestLayout`函数，`mPrivalteFlags`就会添加`PFLAG_FORCE_LAYOUT`标记,那么`forceLayout`就是true,无论后面其他判断条件怎么样，一定会调用`onMeasure`函数进行测量。而`needsLayout`就在上文刚分析了。
+
+ViewGroup测量自身或者测量子View只能重写`onMeasure`函数。但在ViewGroup类仔细寻找，却没有发现重写`onMeasure`函数的痕迹。具体原因是因为具体的ViewGroup，如LinearLayout和RelativeLayout它们各自的测量方式是不一样的，`onMeasure`需要它们具体去实现。
+
 
 ### 7.2.1 MeasureSpec
 
@@ -1923,8 +2185,35 @@ View的这个方法是被它的父控件调用的，也就是说widthMeasureSpec
 
 **父视图可能在它的子视图上调用一次以上的measure(int,int****)方法***。***例如，父视图可以使用unspecified dimensions来将它的每个子视图都测量一次来算出它们到底需要多大尺寸，如果所有这些子视图没被限制的尺寸的和太大或太小，那么它会用精确数值再次调用measure()（也就是说，如果子视图不满意它们获得的区域大小，那么父视图将会干涉并设置第二次测量规则）**。 
 
-### 7.2.5 扩展内容
+一般来说，需要重新测量布局，就调用requestLayout，然后在调用invalidate保证onDraw一定被调用。也就是说requestLayout不一定保证onDraw被调用，但会调用onMeasure和onLayout。
 
+### 7.2.5 扩展内容
+#### 优化view
+**从内优化**
+
+1. 减少 View 层级。这样会加快 View 的循环遍历过程。
+2. 去除不必要的背景。由于 在 draw 的步骤中，会单独绘制背景。因此去除不必要的背景会加快 View 的绘制。
+3. 尽可能少的使用 margin、padding。在测量和布局的过程中，对有 margin 和 padding 的 View 会进行单独的处理步骤，这样会花费时间。我们可以在父 View 中设置 margin 和 padding，从而避免在子 View 中每个单独设置和配置。
+4. 去除不必要的 scrollbar。这样能减少 draw 的流程。
+5. 慎用渐变。能减少 draw 的流程。
+
+**从外优化**
+
+1. 布局嵌套过于复杂。这会直接 View 的层级变多。
+2. View 的过渡绘制。
+3. View 的频繁重新渲染。
+4. UI 线程中进行耗时操作。在 Android 4.0 之后，不允许在 UI 线程做网络操作。
+5. 冗余资源及错误逻辑导致加载和执行缓慢。简单的说，就是代码写的烂。
+6. 频繁触发 GC，导致渲染受阻。当系统在短时间内有大量对象销毁，会造成内存抖动，频繁触发 GC 线程，而 GC 线程的优先级高于 UI 线程，因而会造成渲染受阻。
+
+外部因素最为致命！日常开发中更多的应该关心布局的嵌套层级和冗余资源。
+
+比如，当需要将一个 TextView 和一张图片放在一起展示时，我们可以考虑使用 TextView 的 `drawableLeft`(drawableRight、drawableTop、drawableBottom) 属性来设置图片，而不是使用一个 LinearLayout 来将 TextView 和 ImageView 封装在一起，这样就能减少 View 的绘制层级。
+
+又比如，子元素和父元素都是相同的背景时，就不必在每个子元素中都添加背景属性，等等。
+
+
+扩展[[#56. 内存优化]] 和 [[#55. 界面卡顿优化]]
 ##  7.3自定义view
 
 **创建新的控件，修改属性，增加监听器，增加内容，解决触摸冲突等。**
@@ -2085,11 +2374,12 @@ class WindowState extends WindowContainer<WindowState>
 ### 7.4.2 WindowManger
 
 WindowManager是Android中一个重要的Service,是全局且唯一的。WindowManager继承自ViewManager。  WindowManager主要用来管理窗口的一些状态、属性、view增加、删除、更新、窗口顺序、消息收集和处理等。Android中真正展示给用户的是window和view，activity所起的作用主要是处理一些逻辑问题，比如生命周期管理及建立窗口。
-通过ISessionWindow （AIDL Binder）与WMS跨进程通信
+通过ISessionWindow （AIDL Binder）与WMS跨进程通信，
+这里蛮特殊的，不是直接通过serviceManager.getService("WindowsManagerService")显式获取binder，而是隐式创建binder（wms作为service， wmGlobal作为客户端）
 
 wm = 接口viewManager，接口windowManager，windowsMangerImpl实现类，，《—
 windowsMangerGlobal是wmImpl内部的单例，viewrootImpl操作view
-
+![[20201214164951395.png]]
 
 ## 7.5 Android渲染机制--SurfaceFlinger
 ### SurfaceFlinger
@@ -2160,14 +2450,69 @@ Choreographer 的引入，主要是配合 Vsync，给上层 App 的渲染提供�
 - Android 6.0(API 23)以上版本：其实Android6.0以上的实现方式和Android 5.0   +是一样，为什么要将它归为一个单独重要的阶段呢?是因为从Android 6.0(API   23)开始，我们可以改状态栏的绘制模式，可以显示白色或浅黑色的内容和图标(除了魅族手机，魅族自家有做源码更改，6.0以下就能实现);
 
 
+## 换肤框架
+紧密关联 [[#52.插件化]]
+### 换肤方式一：切换使用主题Theme
 
-# 8. Fragment 懒加载的实现
+使用相同的资源id，但在不同的Theme下边自定义不同的资源。我们通过主动切换到不同的Theme从而切换界面元素创建时使用的资源。这种方案的代码量不多发，而且有个很明显的缺点不支持已经创建界面的换肤，必须重新加载界面元素。
+
+### 加载资源包
+核心思想是在setContentView的反射生成view的时候进行。
+
+**AsserManager加载资源默认传入的资源路径是key.mResDir(app下面的res)，当我们把这个资源路径改成皮肤包资源路径，那不就加载我们皮肤包的资源了**(通过Hook实现)
+
+这里放上AsserManager创建流程(有需要了解可根据下方的方法来看)
+
+> ```java
+> performLaunchActivity @ActivityThread.java
+> --> ContextImpl appContext = createBaseContextForActivity(r);
+> --> ContextImpl.createActivityContext
+> --> context.setResources
+> --> createResources
+> --> ResourcesImpl resourcesImpl = findOrCreateResourcesImplForKeyLocked(key);
+> --> impl = createResourcesImpl(key);
+> --> final AssetManager assets = createAssetManager(key);
+> --> builder.addApkAssets(loadApkAssets(key.mResDir, false /*sharedLib*/,false /*overlay*/));
+> ```
+
+自自定义AssetManager 更改资源加载路径为下载的apk包
+
+
+```java
+public abstract class LayoutInflater{
+    /***部分代码省略****/
+    public interface Factory{
+        public View onCreateView(String name, Context context, AttributeSet attrs);
+    }
+
+    public interface Factory2extends Factory{
+        public View onCreateView(View parent, String name, Context context, AttributeSet attrs);
+    }
+    /***部分代码省略****/
+}
+```
+
+我们可以给当前的页面的Window对象在创建的时候设置Factory，那么在Window中的View进行创建的时候就会先通过自己设置的Factory进行创建。Factory使用方式和相关注意事项请移位到 遇见LayoutInflaterFactory ，关于Factory的相关知识点尽在其中。
+通过自定义LayoutInflaterFactory，在解析xml的时候我们堆需要替换的view和属性筛选出来处理即可。
+
+### 补充：AssetManger和Resources和assets目录和raw目录
+- **assets目录** 的文件，被称为原生文件，在apk的编译打包流程不会生成资源ID，也就是说我们无法通过R.xxx.xxx的方式去访问，这个目录下的文件在被打包生成apk的时候不会进行压缩。
+    
+- **res目录** 的文件，这类文件在打包生成apk的时候，直接通过aapt（资源文件打包工具）打包res资源文件，生成R.java、resources.arsc和res文件，我们可以直接通过R.xxx.xxx的方式访问到资源文件。**（注意：raw下的文件会被原封不动的打包到apk中）**
+
+- res/raw中的文件会被映射到R.java文件中，访问的时候直接使用资源ID即R.id.xxx；assets文件夹下的文件不会被映射到R.java中，访问的时候需要AssetManager类。
+
+- res/raw不可以有目录结构，而assets则可以有目录结构，也就是assets目录下可以再建立文件夹
+
+Resource也是通过AssetManger来访问被编译过的应用程序资源（resources.arsc），访问之前是会先通过id来访问，**AssetManger既可以通过文件名访问被编译过的也可以访问没被编译过的资源文件。**
+
+# 8. Fragment 与Framgment懒加载的实现
 
 生命周期：
 
 onAttach -> onCreate -> onCreatedView -> onActivityCreated -> onStart -> onResume -> onPause -> onStop -> onDestroyView -> onDestroy -> onDetach
 
-
+![[20210418225656166.webp]]
 
 ## 旧方案
 
@@ -2220,7 +2565,7 @@ Fragment可见状态改变时会被调用**setUserVisibleHint()方法**，可以
 
 ### 1，在service中重写onstartCommand
 
-START_STICK，service被kill后自动重写创建
+START_STICK，service被kill后自动重写创建. android
 
 ```java
 @Override
@@ -2378,21 +2723,22 @@ fun Context.queryBatteryOptimizeStatus():Boolean{
 
 # 11.Okhttp源码分析
 
-主框架流程图：
+## 主框架流程图
 
 ![](3631399-0626631d246373a4.png)
 
-```java
+## 基本原理
+基于socket的以及复用连接池，线程池，支持超时链接高并发的高性能高可扩展的多功能网络框架。
+如果支持Http/2 则堆**同一host**复用socket链接，如果不是则从连接池中取出，默认Gzip压缩数据，支持缓存。
 
-```
 
 ##  基本创建
 
 在new OkHttpClient内部维护了使用**建造者模式**初始化了一些配置信息，包括：
 
-1，**支持协议**
+1，**支持协议** —— http1.0、http2.0、https---QUIC
 
-2，**任务分发器Dispatcher（内部包含了线程池，用于执行异步请求）**
+2，**任务分发器Dispatcher（维护请求队列，内部包含了线程池，用于执行异步请求）**
 
 3，**连接池（包含线程池，用于维护connection）**
 
@@ -2429,11 +2775,16 @@ public Builder() {
 
 ## **OkHttp网络请求流程** 
 
-### 1.首先会new call
+### 1.首先会创建okhttpclient，然后创建request，再client.newCall(request)
 
 ```java
 //创建
-Call call = mOkHttpClient.newCall(request);//内部实际上是newRealCall()
+mOkHttpClient = OkhttpBuilder().readTimeout(10L, TimeUnit.SECONDS).build();
+Request request = RequestBulider().url("http://www.baidu.com").get().build();
+Call call = mOkHttpClient.newCall(request);//内部实际上是newRealCall()， call是一个接口
+
+//RealCall其实就是封装了我们的 请求操作 和 拦截器 的执行方法类。
+
 
 //源码
  static RealCall newRealCall(OkHttpClient client, Request originalRequest, boolean forWebSocket) {
@@ -2466,7 +2817,7 @@ Call call = mOkHttpClient.newCall(request);//内部实际上是newRealCall()
 
 
 
-### 3.执行调度器enqueue方法
+### 3.执行调度器enqueue方法（重要）
 
 ```java
 synchronized void enqueue(AsyncCall call) {
@@ -2479,6 +2830,7 @@ synchronized void enqueue(AsyncCall call) {
         
         //条件满足，添加到 正在运行的异步请求队列
       runningAsyncCalls.add(call);
+      //添加到线程池执行
       executorService().execute(call);
     } else {
         //不满足，添加到 将要执行的异步请求队列中
@@ -2490,21 +2842,40 @@ synchronized void enqueue(AsyncCall call) {
 
 
 
-## 调度器
+## 调度器Dispatcher（重要）
+
 
 客户端builder第一行创建了调度器，
 
 包含：
 
-三个双向任务队列。
+三个**双向任务队列。**
+用于保证请求先后顺序执行。
 
-两个异步队列：1.准备执行的请求队列  readyAsyncCalls  。
+RealCall的enqueue就会创建asyncCall，Realcall继承于call，但是AsyncCall是实现Runnable接口的执行类，不要搞混了。
+执行之前都会检查是否已有对应对应请求在执行了有会抛出异常。
 
-​			2.正在执行的请求队列 runningAsyncCalls 。
+两个异步队列：
+[[#3.执行调度器enqueue方法]]
+- 1.准备执行的请求队列  **readyAsyncCalls ** 。runningAsyncCalls的**数量大于maxRequests最大并发数**，就推入该队列。
+- 2.正在执行的请求队列** runningAsyncCalls **。enqueue把AsyncCall推入请求队列并且同时推入线程池。[[JAVA基础--JAVA数据结构--JVM#2.1.4 创建线程池]]
+	```kotlin
+	if (executorServiceOrNull == null) {  
+	//keepAliveTime = 60s
+	  executorServiceOrNull = ThreadPoolExecutor(0, Int.MAX_VALUE, 60, TimeUnit.SECONDS,  
+	      SynchronousQueue(), threadFactory("$okHttpName Dispatcher", false))  
+	}
+	```
 
-一个正在运行的同步请求队列runningSyncCalls。
+一个同步队列：
+- 一个正在运行的同步请求队列**runningSyncCalls**。直接调用execute就会推入该队列并且执行。
 
-### 调度器源码：
+
+**队列采用ArrayDequeue双向队列，速度比LinkedList更快**一个内部是Array实现，一个是链表。
+### 调度器源码（重要）：
+maxRequestsPerHost 每个host上最大的并发请求
+maxRequests 同时请求最大的执行
+
 
 > ```java
 > public final class Dispatcher {
@@ -2540,7 +2911,17 @@ synchronized void enqueue(AsyncCall call) {
 
 ## realcall
 
+**一个realcall不能调用两次enqueue，会报错已执行。**
 **call的方法（.enqueue(request）)其实是执行Dispatcher中的enqueue方法**，把realccall传入。
+
+```kotlin
+override fun enqueue(responseCallback: Callback) {  
+  check(executed.compareAndSet(false, true)) { "Already Executed" }  
+  
+  callStart()  
+  client.dispatcher.enqueue(AsyncCall(responseCallback))  //
+}
+```
 
 再根据条件调用realcall execute()。
 
@@ -2579,68 +2960,44 @@ synchronized void enqueue(AsyncCall call) {
 
 
 
-## 拦截器
+队列中的RealCall创建chain，并调用chain.proceed
 
-realcall中依靠getResponseWithInterceptorChain()方法返回response。
-
-### getResponseWithInterceptorChain()源码
-
+创建interceptorchain时候，把拦截器都添加进去。
 ```java
- Response getResponseWithInterceptorChain() throws IOException {
-    // Build a full stack of interceptors.
-    List<Interceptor> interceptors = new ArrayList<>();
-     
-     //在配置 OkHttpClient 时设置的 interceptors()
-    interceptors.addAll(client.interceptors());
-     
-     //负责失败重试以及重定向的  RetryAndFollowUpInterceptor
-    interceptors.add(retryAndFollowUpInterceptor);//2
-     
-     //负责把用户构造的请求转换为发送到服务器的请求、把服务器返回的响应转为用户友好的响应的 			   BridgeInterceptor
-    interceptors.add(new BridgeInterceptor(client.cookieJar()));//3
-     
-     //负责读取缓存返回，更新缓存的  cacheIntercptor
-    interceptors.add(new CacheInterceptor(client.internalCache()));//4
-     
-     //负责和服务器建立连接的 ConnectInterceptor
-    interceptors.add(new ConnectInterceptor(client));//5
-     
-    if (!forWebSocket) {
-        
-       //配置 OkHttpClient 时设置的 networkInterceptors
-      interceptors.addAll(client.networkInterceptors());//6 
-    }
-     
-     //负责向服务器发送请求数据、从服务器读取响应数据的 CallServerInterceptor
-    interceptors.add(new CallServerInterceptor(forWebSocket));//7
-
-    Interceptor.Chain chain = new RealInterceptorChain(interceptors, null, null, null, 0,
-        originalRequest, this, eventListener, client.connectTimeoutMillis(),
-        client.readTimeoutMillis(), client.writeTimeoutMillis());
-
-    //前面都是在配置chain的拦截器链
-     
-     //开启链式调用
-    return chain.proceed(originalRequest);//8
-  }
+//创建interceptorChain
+internal fun getResponseWithInterceptorChain(): Response {  
+  // Build a full stack of interceptors.  
+  val interceptors = mutableListOf<Interceptor>()  
+  interceptors += client.interceptors  
+  interceptors += RetryAndFollowUpInterceptor(client)  
+  interceptors += BridgeInterceptor(client.cookieJar)  
+  interceptors += CacheInterceptor(client.cache)  
+  interceptors += ConnectInterceptor  
+  if (!forWebSocket) {  
+    interceptors += client.networkInterceptors  
+  }  
+  interceptors += CallServerInterceptor(forWebSocket)  
+  
+  val chain = RealInterceptorChain(  
+      call = this,  
+      interceptors = interceptors,  
+      index = 0,  
+      exchange = null,  
+      request = originalRequest,  
+      connectTimeoutMillis = client.connectTimeoutMillis,  
+      readTimeoutMillis = client.readTimeoutMillis,  
+      writeTimeoutMillis = client.writeTimeoutMillis  
+  )
+try {  
+//开启链式调用
+  val response = chain.proceed(originalRequest)
+  .......
 
 ```
 
-总共有
 
-RetryAndFollowUpInterceptor
-
-BridgeInterceptor，
-
-cacheIntercptor，
-
-networkIntercerptor，
-
-CallServerInterceptor**五个拦截器**
-
-
-
-chain.proceed中调用**RealInterceptorChain**的**proceed**方法开启链式调用，源码如下：
+chain.proceed中调用**RealInterceptorChain**的**proceed**方法，
+开启链式调用，源码如下：
 
 ```java
   public Response proceed(Request request, StreamAllocation streamAllocation, HttpCodec httpCodec, RealConnection connection) throws IOException {
@@ -2695,19 +3052,134 @@ chain.proceed中调用**RealInterceptorChain**的**proceed**方法开启链式�
 
 
 
-### 各个拦截器
+## 拦截器
 
-1. `在配置 OkHttpClient 时设置的 interceptors ()`
+realcall中依靠getResponseWithInterceptorChain()方法返回response。
+
+### getResponseWithInterceptorChain()源码
+
+```java
+ Response getResponseWithInterceptorChain() throws IOException {
+    // Build a full stack of interceptors.
+    List<Interceptor> interceptors = new ArrayList<>();
+     
+     //在配置 OkHttpClient 时设置的 interceptors()
+    interceptors.addAll(client.interceptors());
+     
+     //负责失败重试以及重定向的  RetryAndFollowUpInterceptor
+    interceptors.add(retryAndFollowUpInterceptor);//2
+     
+     //负责把用户构造的请求转换为发送到服务器的请求、把服务器返回的响应转为用户友好的响应的 			   BridgeInterceptor
+    interceptors.add(new BridgeInterceptor(client.cookieJar()));//3
+     
+     //负责读取缓存返回，更新缓存的  cacheIntercptor
+    interceptors.add(new CacheInterceptor(client.internalCache()));//4
+     
+     //负责和服务器建立连接的 ConnectInterceptor
+    interceptors.add(new ConnectInterceptor(client));//5
+     
+    if (!forWebSocket) {
+        
+       //配置 OkHttpClient 时设置的 networkInterceptors
+      interceptors.addAll(client.networkInterceptors());//6 
+    }
+     
+     //负责向服务器发送请求数据、从服务器读取响应数据的 CallServerInterceptor
+    interceptors.add(new CallServerInterceptor(forWebSocket));//7
+
+    Interceptor.Chain chain = new RealInterceptorChain(interceptors, null, null, null, 0,
+        originalRequest, this, eventListener, client.connectTimeoutMillis(),
+        client.readTimeoutMillis(), client.writeTimeoutMillis());
+
+    //前面都是在配置chain的拦截器链
+     
+     //开启链式调用
+    return chain.proceed(originalRequest);//8
+  }
+
+```
+
+总共有**五个拦截器**
+
+- RetryAndFollowUpInterceptor
+
+- BridgeInterceptor
+
+- cacheIntercptor
+
+- ConnectInterceptor
+
+- CallServerInterceptor
+
+
+
+
+### 各个拦截器
+注意先后顺序
+1. `在配置 OkHttpClient 时用户设置的 interceptors ()`
 2. `负责失败重试以及重定向的RetryAndFollowUpInterceptor`
 3. `负责把用户构造的请求转换为发送到服务器的请求、把服务器返回的响应转为用户友好的响应的 BridgeInterceptor(修改请求头、响应头)`
 4. `负责读取缓存直接返回、更新缓存的 CacheInterceptor`
 5. `负责和服务器建立连接的 ConnectInterceptor`
-6. `配置 OkHttpClient 时设置的 networkInterceptors`
+6. `配置 OkHttpClient 时用户设置的 networkInterceptors`
 7. `负责向服务器**发送请求数据、从服务器读取响应数据**的 CallServerInterceptor`
 
- 
+ #### 自定义interceptor
+ 继承interceptor，实现intercept(chain: Chain)方法
+有两种：
+- addIntecepteceptor---请求发起之前，适合 比如添加通用数据、自定义http缓存规则等等。
+- addNetworkIntecetor---真正发起网络请求之前，callAdapter之前，connectIntecept之后
+适合：如果你要修改请求头，cookie等等，就要用addNetwork，不然会被默认处理覆盖。
 
-- **ConnectInterceptor：与服务器进行连接**
+#### RetryAndFollowUpInterceptor
+
+重試次數不超過20（已經作限制了），不然呢抛出異常
+
+#### BridgeInterceptor
+添加各種請求頭, 包括cookie，cookie我們可以繼承cookieJar去實現實現對應的方法並在配置client的時候傳入。
+```kotlin
+.....
+if (userRequest.header("Host") == null) {  
+  requestBuilder.header("Host", userRequest.url.toHostHeader())  
+}  
+  
+if (userRequest.header("Connection") == null) {  
+  requestBuilder.header("Connection", "Keep-Alive")  
+}  
+  
+// If we add an "Accept-Encoding: gzip" header field we're responsible for also decompressing  
+// the transfer stream.  
+var transparentGzip = false  
+if (userRequest.header("Accept-Encoding") == null && userRequest.header("Range") == null) {  
+  transparentGzip = true  
+  //gzip压缩
+  requestBuilder.header("Accept-Encoding", "gzip")  
+}  
+  
+val cookies = cookieJar.loadForRequest(userRequest.url)  
+if (cookies.isNotEmpty()) {  
+//cookie头
+  requestBuilder.header("Cookie", cookieHeader(cookies))  
+}  
+  
+if (userRequest.header("User-Agent") == null) {  
+  requestBuilder.header("User-Agent", userAgent)  
+}  
+  
+val networkResponse = chain.proceed(requestBuilder.build())
+```
+
+#### CacheInteceptor
+對數據進行緩存或者讀取緩存，判断缓存有没有命中，通过缓存请求头：
+
+####  **ConnectInterceptor**
+与服务器进行连接
+**OKHttp如何复用TCP连接？**
+ConnectInterceptor的主要工作就是负责建立TCP连接，建立TCP连接需要经历三次握手四次挥手等操作，如果每个HTTP请求都要新建一个TCP消耗资源比较多。
+
+而Http1.1已经支持keep-alive，即多个Http请求复用一个TCP连接，OKHttp也做了相应的优化，下面我们来看下OKHttp是怎么复用TCP连接的。
+
+[[#**OkHttp的复用连接池**]]
 
   ```java
    @Override public Response intercept(Chain chain) throws IOException {
@@ -2724,15 +3196,15 @@ chain.proceed中调用**RealInterceptorChain**的**proceed**方法开启链式�
     }
   ```
 
-  ```
-   
-  ```
+
 
   **实际上建立连接就是创建了一个 HttpCodec 对象，它将在后面的CallServerInterceptor用于发送和接收, 它是对 HTTP 协议操作的抽象，有两个实现：Http1Codec和 Http2Codec**，顾名思义，它们分别对应 HTTP/1.1 和 HTTP/2 版本的实现。
 
   **在 Http1Codec中，它利用 [Okio](https://link.jianshu.com?t=https%3A%2F%2Fgithub.com%2Fsquare%2Fokio%2F) 对 Socket 的读写操作进行封装，它对 java.io和 java.nio 进行了封装**，让我们更便捷高效的进行 IO 操作 
 
+#### CallServerInterceptor
 
+	
 
 ### 结论
 
@@ -2761,6 +3233,8 @@ RealInterceptorChain的proceed方法，通过顺序地传入一个拦截器的�
 Http有一种叫做keepalive connections的机制，而okHttp支持5个并发socket连接，默认keepalive时间为5分钟 
 
  在`timeout`空闲时间内，连接不会关闭，相同重复的request将复用原先的`connection`，减少握手的次数，大幅提高效率 。
+源码在 ExchangeFinder.class 中
+![[640.jpg]]
 
 #  12.ButterKnife原理解析
 
@@ -3237,31 +3711,304 @@ parcel.h中部分代码， 其中data存了共享的对象首地址，position�
 
 ## 大图展示
 
-
+1.我们可以通过option先配置图片解码大小，通过inSampleSize加载缩略图图
+或者是  **通过option配置inJustDecodeBounds只加载图片的信息，再根据图片情况进行具体配置
 
 ```java
 BitmapFactory.Options options = new BitmapFactory.Options(); 
 
 options.inJustDecodeBounds = true; 
+opt.inSampleSize = 2 
+BitmapFactory.decodeResource(getResources(), R.mipmap.qb, options); 
 
-Bitmap bitmap = BitmapFactory.decodeResource(getResources(), R.mipmap.qb, options); 
+```
+2.加载了图片信息，只加载部分区域通过 BitmapRegionDecoder
+```kotlin
+val opt = BitmapFactory.Options()  
+opt.inSampleSize = 2 
+BitmapFactory.decodeFile(file, opt)  
+//开启复用！！！
+opt.inMutable = true  
+BitmapRegionDecoder.newInstance(file, false)
+```
+
+
+# 16.Gilde原理分析
+
+扩展 [[#35.Gilde 和Fresco]]
+
+![[aHR0cHM6Ly9pbWcubXVidS5jb20vZG9jdW1lbnRfaW1hZ2UvZWEyMzhlNzgtNTNlNS00ZTk5LTljNDYtZTA1ZjA0MzEwNmY5LTc3MDI4ODQuanBn.png]]
+
+
+with（），load（），into（）。
+
+**with()**:添加activity或者context或者fragment，获取到requestMannager（管理请求）并创建一个fragment用于监听生命周期（通过lifecycle），以便及时回收资源，终止操作。
+初始化with()
+
+首先是Glide.with()方法，通过该方法主要是通过RequestManagerRetriever获取一个RequestManager对象。RequestManager是处理图片加载过程的具体实现类，后面详细讲述。
+
+### 调用链路（需要熟記）：
+- (1)Glide.with( activtiy / fragment / framgentActivtiy / context)
+- (2)Glide.getRetriever
+	- (3)Glide.get(context) 获取Glide的全局单例，如果 沒有就要初始化，同時初始化緩存池，处理用户自定义AppGlideModule的情况。通过Annotation Processer在编译时根据@GlideModule注解来生成自定义Glide的代理类（繼承自AppGlideModule，支持用戶通過gildeBuilder自定義bitmapPool，各個綫程池，日志等等）GeneratedAppGlideModuleImpl,通过反射获取代理类的构造方法并实例化返回。
+	若都没有自定义的module，则通过GliderBuilder的工厂模式，執行build生成实例。
+```java
+Glide build(@NonNull Context context) {  
+    if (sourceExecutor == null) {  
+      sourceExecutor = GlideExecutor.newSourceExecutor();  
+    }  
+  
+    if (diskCacheExecutor == null) {  
+      diskCacheExecutor = GlideExecutor.newDiskCacheExecutor();  
+    }  
+  
+    if (animationExecutor == null) {  
+      animationExecutor = GlideExecutor.newAnimationExecutor();  
+    }  
+  
+    if (memorySizeCalculator == null) {  
+      memorySizeCalculator = new MemorySizeCalculator.Builder(context).build();  
+    }  
+  
+    if (connectivityMonitorFactory == null) {  
+      connectivityMonitorFactory = new DefaultConnectivityMonitorFactory();  
+    }  
+  
+    if (bitmapPool == null) {  
+      int size = memorySizeCalculator.getBitmapPoolSize();  
+      if (size > 0) {  
+        bitmapPool = new LruBitmapPool(size);  
+      } else {  
+        bitmapPool = new BitmapPoolAdapter();  
+      }  
+    }  
+  
+    if (arrayPool == null) {  
+      arrayPool = new LruArrayPool(memorySizeCalculator.getArrayPoolSizeInBytes());  
+    }  
+  
+    if (memoryCache == null) {  
+      memoryCache = new LruResourceCache(memorySizeCalculator.getMemoryCacheSize());  
+    }  
+  
+    if (diskCacheFactory == null) {  
+      diskCacheFactory = new InternalCacheDiskCacheFactory(context);  
+    }  
+  
+    if (engine == null) {  
+    //初始化圖片加載引擎
+      engine =  
+          new Engine(  
+              memoryCache,  
+              diskCacheFactory,  
+              diskCacheExecutor,  
+              sourceExecutor,  
+              GlideExecutor.newUnlimitedSourceExecutor(),  
+              animationExecutor,  
+              isActiveResourceRetentionAllowed);  
+    }  
+  
+    if (defaultRequestListeners == null) {  
+      defaultRequestListeners = Collections.emptyList();  
+    } else {  
+      defaultRequestListeners = Collections.unmodifiableList(defaultRequestListeners);  
+    }  
+  
+    RequestManagerRetriever requestManagerRetriever =  
+        new RequestManagerRetriever(requestManagerFactory);  
+//new Glide中會配置更多的東西，例如各種解碼器，編碼器，綫程池
+    return new Glide(  
+        context,  
+        engine,  
+        memoryCache,  
+        bitmapPool,  
+        arrayPool,  
+        requestManagerRetriever,  
+        connectivityMonitorFactory,  
+        logLevel,  
+        defaultRequestOptionsFactory,  
+        defaultTransitionOptions,  
+        defaultRequestListeners,  
+        isLoggingRequestOriginsEnabled,  
+        isImageDecoderEnabledForBitmaps);  
+  }  
+}
+
+```
+
+- (4)Glide.getRequestManagerRetriever()
+- (5)RequestManagerRetriever.get()
+- RequestManagerRetriever.get
+方法根据调用的context及是否主线程返回对应的RequestManager。
+	context为FragmentActivity时调用：
+```java
+	public RequestManager get(@NonNull Context context) {
+    if (context == null) {
+      throw new IllegalArgumentException("You cannot start a load on a null Context");
+    } else if (Util.isOnMainThread() && !(context instanceof Application)) {
+    //Activity、FragmentActivity情况
+      if (context instanceof FragmentActivity) {
+        return get((FragmentActivity) context);
+      } else if (context instanceof Activity) {
+        return get((Activity) context);
+      } else if (context instanceof ContextWrapper
+          && ((ContextWrapper) context).getBaseContext().getApplicationContext() != null) {
+        return get(((ContextWrapper) context).getBaseContext());
+      }
+    }
+    //非UI线程情况
+    return getApplicationManager(context);
+	}
+```
+
+如果context是Fragment时调用：
+```java
+public RequestManager get(@NonNull Fragment fragment) {
+    Preconditions.checkNotNull(
+        fragment.getContext(),
+        "You cannot start a load on a fragment before it is attached or after it is destroyed");
+    //非UI线程
+    if (Util.isOnBackgroundThread()) {
+      return get(fragment.getContext().getApplicationContext());
+    } else {
+        //context为Fragment情况
+      FragmentManager fm = fragment.getChildFragmentManager();
+      return supportFragmentGet(fragment.getContext(), fm, fragment, fragment.isVisible());
+    }
+}
+
+```
+总的来说分三种情况：
+	@1. 非UI线程
+	@2. UI线程Activity
+	@3. UI线程Fragment
+
+@1.先来分析第一种情况，第一种情况较简单，通过getApplicationManager返回一个全局的RequestManager单例，**该RequestManager是通过ApplicationLifecycle()构造的，也就是说只能感知application的生命周期**
+
+@2.再来看UI线程Activity情况
+```java
+public RequestManager get(@NonNull FragmentActivity activity) {
+    if (Util.isOnBackgroundThread()) {
+      return get(activity.getApplicationContext());
+    } else {
+        //断言activity未销毁
+      assertNotDestroyed(activity);
+      //获取FragmentManager
+      FragmentManager fm = activity.getSupportFragmentManager();
+      //核心！！通过fm向当前activity添加一个SupportRequestManagerFragment实例
+      //通过SupportRequestManagerFragment感知activity的生命周期
+      return supportFragmentGet(activity, fm, /*parentHint=*/ null, isActivityVisible(activity));
+    }
+}
+```
+	只监听了start，pause，destroy生命周期。
+
+- (6)with最后返回的是 RequestManager，
+- requestmanager 根据load（传入的类型url，drawable，bitmap之类的）返回对应的  requestbuilder
+	- **load**（）：加载链接并返回DrawableRequestBuilder，大多数方法  都在这个建造者类中。主要是創建請求
+- requestbuilder.into 正常开始请求网络
+```java
+//此處只看into（ImageView）方法
+public ViewTarget<ImageView, TranscodeType> into(@NonNull ImageView view) {
+    //断言是否UI线程，非UI线程抛出异常
+    Util.assertMainThread();
+    //判空
+    Preconditions.checkNotNull(view);
+    BaseRequestOptions 《?> requestOptions = this;
+    //获取裁剪方式配置。注意这里使用的是clone的方式
+    //避免修改原始配置参数，导致相同RequestBuilder加载其他目标时配置被修改过。
+    if (!requestOptions.isTransformationSet()
+        && requestOptions.isTransformationAllowed()
+        && view.getScaleType() != null) {
+     
+      switch (view.getScaleType()) {
+        case CENTER_CROP:
+          requestOptions = requestOptions.clone().optionalCenterCrop();
+          break;
+        case CENTER_INSIDE:
+          requestOptions = requestOptions.clone().optionalCenterInside();
+          break;
+        case FIT_CENTER:
+        case FIT_START:
+        case FIT_END:
+          requestOptions = requestOptions.clone().optionalFitCenter();
+          break;
+        case FIT_XY:
+          requestOptions = requestOptions.clone().optionalCenterInside();
+          break;
+        case CENTER:
+        case MATRIX:
+        default:
+          // Do nothing.
+      }
+    //@1.核心！！加载图片
+    return into(
+        //根据类型封装成对应的ViewTarget
+        //分为DrawableImageViewTarget、BitmapImageViewTarget
+        //分别调用ImageView的setImageDrawable、setImageBitmap来实现图片加载显示
+        glideContext.buildImageViewTarget(view, transcodeClass),
+        /*targetListener=*/ null,
+        requestOptions,
+        Executors.mainThreadExecutor());
+}
 
 ```
 
 
 
-# 16.Gilde原理分析
 
-with（），load（），into（）。
+**into**（）中的所有操作：发起网络请求、缓存数据、解码并显示图片
 
-**with()**:添加activity或者context或者fragment，获取到requestMannager（管理请求）并创建一个fragment用于监听生命周期（通过lifecycle），以便及时回收资源，终止操作。
+```java
+private <Y extends Target《TranscodeType>> Y into(
+      @NonNull Y target,
+      @Nullable RequestListener<TranscodeType> targetListener,
+      BaseRequestOptions<<?> options,
+      Executor callbackExecutor) {
+    Preconditions.checkNotNull(target);
+    if (!isModelSet) {
+      throw new IllegalArgumentException("You must call #load() before calling #into()");
+    }
+
+    Request request = buildRequest(target, targetListener, options, callbackExecutor);
+
+    Request previous = target.getRequest();
+    // 这里做了请求优化处理，避免重复资源请求。同时满足如下两个条件时，直接复用前一个request。
+    //1.当前request和前一个request相同
+    //2.支持内存缓存cacheable=true或者前一个请求未成功完成isComplete=false
+    if (request.isEquivalentTo(previous)
+        && !isSkipMemoryCacheWithCompletePreviousRequest(options, previous)) {
+      //如果前一个request处于非running状态，重新启动该请求
+      if (!Preconditions.checkNotNull(previous).isRunning()) {
+        previous.begin();
+      }
+      return target;
+    }
+    //如果是新请求，更新RequestTracker及TargetTracker
+    requestManager.clear(target);
+    target.setRequest(request);
+    //@2.发送加载请求
+    requestManager.track(target, request);
+
+    return target;
+}
+
+synchronized void track(@NonNull Target >?> target, @NonNull Request request) {
+    //弱引用存储ViewTarget
+    targetTracker.track(target);
+    //@3.将request加入请求集合并执行
+    requestTracker.runRequest(request);
+}
 
 
+```
+- runrequest 的時候會放到resuqest任務隊列中，但如果是pause狀態，就會放到一個pending任務列表中等到觀察到 restart 再取出執行。
+	或者是直接觀察到了pause，就會從requser任務隊列中取出并且暫停，也是放到一個pending任務列表中等到觀察到 restart 再取出執行。
 
-**load**（）：加载链接并返回DrawableRequestBuilder，大多数方法  都在这个建造者类中。
 
-**into**（）：发起网络请求、缓存数据、解码并显示图片
+- 核心2：圖片加載引擎engine，執行engine.load()，，經過**三級緩存**，創建engineJob和decodeJob放入到glide的綫程池開始獲取圖片和解碼圖片。
 
+大致流程：
 ①初始化各种**参数**，做好准备工作（**配置网络请求**、基于MVP的各种接口回调）
 
 ②使用最原始的HTTPConnect网络连接（HttpURLConnection ），读取文件流，可以引入okhttp支持
@@ -3276,7 +4023,7 @@ lfiecycle（观察者模式）在fragment（被观察者）中：
 
 ```java
 public class RequestManagerFragment extends Fragment {
-    // 代码略...
+    // 代码略...，注意此处的lifecycle是gilde自己定义的lifecycle，跟jetpack的没有关系
     private final ActivityFragmentLifecycle lifecycle;
     // 代码略...
     @Override
@@ -3319,6 +4066,8 @@ public class RequestManagerFragment extends Fragment {
    onDestroy时回收资源
 
 
+## Glide的緩存設計（重中之重）
+![[20200531193106733.png]]
 
 Glide 缓存机制主要分为2种：
 
@@ -3326,11 +4075,27 @@ Glide 缓存机制主要分为2种：
 
  使用磁盘缓存的原因是：防止应用重复从网络或其它地方下载和读取数据。 
 
+### Glide的三级缓存策略：
 
+(1) Engine.load中先从内存缓存中加载图片loadFromMemory
+- 先从 ActiveResources活跃缓存中 获取，active緩存也就是正在使用的圖片資源，並是以弱引用的在使用
+	- 获取失败从内存缓存LruResourceCache中获取，同时将缓存从cache中移到actives中
+      //這裏就是Lru緩存了，此處key是保存了大小、資源等信息的。
+
+(3) 执行DecodeEngine.run通过ResourceCacheGenerator从硬盘缓存中读取（第三緩存）
+
+(4) 读取失败  则  通过SourceGenerator执行获取任务，UrlConnection下载网络图片
+
+(5) **下载成功后经过解码、压缩后，更新硬盘缓存及活跃缓存actives**
+
+(6) 回调ImageViewTarget最终设置并显示图片到目标ImageView
+
+### 各種復用池
+BitmapPool，ByteArrayPool存儲解碼時的緩衝buff復用。
 
 问题1： Glide加载一个100x100的图片，是否会压缩后再加载？放到一个300x300的view上会怎样？
 
-当我们调整ImageView大小事，Glide会为每个不同尺寸的ImageView缓存一张图片，也就是说不管你的这张图片有没有被加载过，只要ImageView的尺寸不一样，那么GLide就会重新加载一次，这时候，他会在加载ImageView之前从网络上重新下载，然后再缓存。
+当我们调整ImageView大小事，因爲緩存的key是基於圖片參數的，也就是Glide会为每个不同尺寸的ImageView缓存一张图片，也就是说不管你的这张图片有没有被加载过，只要ImageView的尺寸不一样，那么Glide就会重新加载一次，这时候，他会在加载ImageView之前从网络上重新下载，然后再缓存。
  举个例子，如果一个页面的ImageView是300 * 300像素，而另一个页面中的ImageView是100 * 100像素，这时候想要让两个ImageView是同一张图片，那么Glide需要下载两次图片，并且缓存两张图片。
 
 
@@ -3343,7 +4108,7 @@ Glide在加载资源的时候，如果是在Activity，Fragment这一类有生�
 
 首先需要区分加载的图片类型，即网络请求拿到输入流后，获取输入流的前三个字节，若为 GIF 文件头，则返回图片类型为 GIF。
 
-确认为 GIF 动图后，会构建一个 GIF 的解码器（StandardGifDecoder），它可以从 GIF 动图中读取每一帧的数据并转换成 Bitmap，然后使用 Canvas 将 Bitmap 绘制到 ImageView 上，下一帧则利用 Handler 发送一个延迟消息实现连续播放，所有 Bitmap 绘制完成后又会重新循环，所以就实现了加载 GIF 动图的效果。
+确认为 GIF 动图后，会构建一个 GIF 的解码器（StandardGifDecoder），它可以从 **GIF 动图中读取每一帧的数据并转换成 Bitmap**(這裏就引出下面的問題了)，然后使用 Canvas 将 Bitmap 绘制到 ImageView 上，下一帧则利用 Handler 发送一个延迟消息实现连续播放，所有 Bitmap 绘制完成后又会重新循环，所以就实现了加载 GIF 动图的效果。
 
 
 ### Gif卡顿
@@ -3362,6 +4127,10 @@ Glide在加载资源的时候，如果是在Activity，Fragment这一类有生�
 
 handler是消息处理器，用于接收和发送message，Message是消息本体，messagequeue是消息队列，Looper是驱动从messageQueue轮询获取message。每个Looper拥有一个messagequue。
 
+详细架构图：
+
+![[20210524190404296.png]]
+
 ## 18.1 Looper
 
 looper其实管理message queue的类。一个线程只有一个looper。主线程拥有隐式的loop， activityThread main中loop。LOOP（）。
@@ -3371,6 +4140,7 @@ looper其实管理message queue的类。一个线程只有一个looper。主线�
 **prepare**：创建looper对象，通过threadlocal（虽然是全局，但只能将存储到当前线程的数据取出）设置到当前线程。
 
 threadlocal：数组键值对。t=key，t+1=value
+已经存储了线程对应的loop，所以一个线程只能创建一个loop
 
 **loop**：开启消息循环，从消息队列中不断取出
 
@@ -3437,13 +4207,264 @@ messageQueue。enenque（message）里面会上锁
 
 ![[v2-50dc75acb87d6cd3b73862cedfb3d674_720w.webp]]
 
+### messageQueue
+
+	存于在Loop中，Loop管理者消息队列，在创建该线程的线程空间，共享该messagequeue的空间实现线程切换。
+核心动力点
+```java
+Message next() {  
+    // Return here if the message loop has already quit and been disposed.  
+    // This can happen if the application tries to restart a looper after quit    // which is not supported.    final long ptr = mPtr;  
+    if (ptr == 0) {  
+        return null;  
+    }  
+  
+    int pendingIdleHandlerCount = -1; // -1 only during first iteration  
+    int nextPollTimeoutMillis = 0;  
+    for (;;) {  
+        if (nextPollTimeoutMillis != 0) {  
+            Binder.flushPendingCommands();  
+        }  
+        //没有消息的时候就调用这个native方法阻塞线程
+        nativePollOnce(ptr, nextPollTimeoutMillis);  
+  
+        synchronized (this) {  
+            // Try to retrieve the next message.  Return if found.  
+            final long now = SystemClock.uptimeMillis();  
+            Message prevMsg = null;  
+            Message msg = mMessages;  
+            if (msg != null && msg.target == null) {  //处理消息屏障的 *同步*  消息，如果没有同步信息解除屏障，则会直接跳过异步信息阻塞或者每次都进入消息屏障
+                // Stalled by a barrier.  Find the next asynchronous message in the queue.  
+                do { 
+                    prevMsg = msg;  
+                    msg = msg.next;  
+                } while (msg != null && !msg.isAsynchronous());  //取出后续同步的信息
+            }  
+            
+         //不断取消息，取异步消息
+            if (msg != null) {  
+                if (now 《  msg.when) {  
+                    // Next message is not ready.  Set a timeout to wake up when it is ready.  
+                    nextPollTimeoutMillis = (int) Math.min(msg.when - now, Integer.MAX_VALUE);  
+                } else {  
+                    // Got a message.  
+                    mBlocked = false;  
+                    if (prevMsg != null) {  
+                        prevMsg.next = msg.next;  
+                    } else {  
+                        mMessages = msg.next;  
+                    }  
+                    msg.next = null;  
+                    if (DEBUG) Log.v(TAG, "Returning message: " + msg);  
+                    msg.markInUse();  
+                    return msg;  
+                }  
+            } else {  
+                // No more messages.  。-1
+                nextPollTimeoutMillis = -1;  
+            }  
+  
+            //调用退出  
+            if (mQuitting) {  
+                dispose();  
+                return null;            }  
+//两个条件用IdlerHandler：当前消息队列是空，或者还没到消息运行时间
+               if (pendingIdleHandlerCount 《 0  
+                    && (mMessages == null || now 《 mMessages.when)) {  
+                pendingIdleHandlerCount = mIdleHandlers.size();  
+            }  
+            if (pendingIdleHandlerCount 《= 0) {  
+                // No idle handlers to run.  Loop and wait some more.  
+                mBlocked = true;  
+                continue;            }  
+
+	
+            if (mPendingIdleHandlers == null) {  
+                mPendingIdleHandlers = new IdleHandler[Math.max(pendingIdleHandlerCount, 4)];  
+            }  
+            mPendingIdleHandlers = mIdleHandlers.toArray(mPendingIdleHandlers);  
+        }  
+  
+         for (int i = 0; i 《 pendingIdleHandlerCount; i++) {  
+            final IdleHandler idler = mPendingIdleHandlers[i];  
+            mPendingIdleHandlers[i] = null; // release the reference to the handler  
+  
+            boolean keep = false;  
+            try {  
+                keep = idler.queueIdle();  
+            } catch (Throwable t) {  
+                Log.wtf(TAG, "IdleHandler threw exception", t);  
+            }  
+  
+            if (!keep) {  
+                synchronized (this) {  
+                    mIdleHandlers.remove(idler);  
+                }  
+            }  
+        }  
+  
+        // Reset the idle handler count to 0 so we do not run them again.  
+        pendingIdleHandlerCount = 0;  
+  
+        // While calling an idle handler, a new message could have been delivered  
+        // so go back and look again for a pending message without waiting.       
+         nextPollTimeoutMillis = 0;  
+    }  
+}
+
+```
+
+
+1.当没有遍历到链表的尾部时，即p不为null，此时比较的是延迟时间when如果when 《  p.when，那么msg应该被插入到p之前。
+
+2.p = null时，那么即表示已经到链表的尾了，此时循环跳出 msg.next = p; prev.next = msg.这里msg其实是被放到了链表的尾部了。
+
+3.看needWake的赋值操作，**needWake = mBlocked && p.target == null && msg.isAsynchronous();**这个条件判断是比较严格的，什么时候才会唤醒队列呢？队列是睡眠状态并且队列的第一条消息的target为空(Handler)，待插入的msg为异步消息时才会唤醒队列。
+
+tips：这个循环其实是有点绕的，需要理解的是每次遍历之前都更新了prev的值，且将头节点后移了一个p = p.next；然后开始遍历，当条件满足插入的位置时msg的前后节点都可以对应上。通俗的讲，这个prev其实就是msg的prev。需要理解的是p与prev在遍历的过程中是不断变化的。
+
+
+看一下nativeWake
+我们在quit,  enqueueMessage，removeSynBarrier的时候会触发nativeWake，恢复进程。
+
 ## 18.3 Handler
+```kotlin
+val obtain = Message.obtain()  
+val handler = object :Handler(Looper.getMainLooper()){  
+    override fun handleMessage(msg: Message) {  
+        super.handleMessage(msg)  
+        xxxx  
+    }
+}  
+  
+obtain.obj = 10  
+handler.sendMessage(obtain)  
+handler.sendMessageDelayed(obtain, 100l)  
+
+handler.post { }  
+handler.postAtTime({}, 100l)
+```
+
 
 handler工作需要looper，不然报错。
 
 post，postDelayed（runnable， timemilis）或者sendMessage方法，向消息队列中插入一条消息。
 
 postDelayed：定时执行一次任务，runnable封装成callback，handlemessage时执行callback
+会根据delay时间去进行一个时间排序，**通过遍历单链表把delay消息插入到合适的位置，然后通过nativePollOnce进行休眠，如有新消息进入则调用nativeWake唤醒，然后再计算时间差进行休眠，直到msg.when >= now为止**
+
+post方法与send方法的区别
+
+在handler从MessageQueue中取出Message的过程中，可以看到不同的回调过程，源码如下：
+```java
+public void dispatchMessage(Message msg){
+  //如果是post,callback不为空，直接进入handleCallback
+  if(msg.callback != null){
+    handleCallback(msg);
+    }else{
+      //如果是sendMessage，且创建handler时没有传入callback，则callback为空，直接进入handleMessage,也就是我们自己复写的处理Message的方法
+      if(mCallback !=null){
+        if(mCallback.handleMessage(msg)){
+          return;
+        }
+      }
+    handleMessage(msg);
+    }
+}
+//直接run并不会启动新线程，所以这就是post的runnable里面可以直接更新UI的原因
+private static void handleCallback(Message msg){
+  msg.callback.run();
+  }
+
+```
+
+
+（1）post一类的方法发送的是Runnable对象，但是最后还是会被封装成Message对象，将Runnable对象赋值给Message对象中的callback字段，然后交由sendMessageAtTime()方法发送出去。
+在处理消息时，会在dispatchMessage()方法里首先被handleCallback(msg)方法执行，实际上就是执行Message对象里面的Runnable对象的run方法。
+
+（2）sendMessage一类方法发送的消息直接是Message对象，处理消息时，在dispatchMessage里优先级会低于handleCallback(msg)方法，是通过自己重写的handleMessage(msg)方法执行。
+
+（3）可以看出，post方法与send方法本质上并没有什么区别，更多的是使用方法上存在着一些差异。
+
+### postDelay
+
+```java
+//enqueue()
+、、
+Message p = mMessages;  
+    boolean needWake;
+ //执行时间比它早
+    if (p == null || when == 0 || when 《 p.when) { 
+        // New head, wake up the event queue if blocked.  
+        msg.next = p;  
+        //插入最前
+        mMessages = msg;  
+        needWake = mBlocked;  
+    } else {  
+        // Inserted within the middle of the queue.  Usually we don't have to wake  
+        // up the event queue unless there is a barrier at the head of the queue        // and the message is the earliest asynchronous message in the queue.        needWake = mBlocked && p.target == null && msg.isAsynchronous();  
+        Message prev;  
+        for (;;) {  
+            prev = p;  
+            p = p.next;  
+            if (p == null || when 《 p.when) {  
+                break;  
+            }  
+            if (needWake && p.isAsynchronous()) {  
+                needWake = false;  
+            }  
+        }  
+        msg.next = p; // invariant: p == prev.next  
+        prev.next = msg;  
+    }  
+  
+    // We can assume mPtr != 0 because mQuitting is false.  
+    if (needWake) {  
+        nativeWake(mPtr);  
+    }  
+}  
+return true;
+
+```
+现在整个调用流程就比较清晰了，以刚刚的问题为例：
+
+1. `postDelay()`一个10秒钟的Runnable A、消息进队，MessageQueue调用`nativePollOnce()`阻塞，Looper阻塞；
+2. 紧接着`post()`一个Runnable B、消息进队，**判断现在A时间还没到、正在阻塞，把B插入消息队列的头部（A的前面），然后调用`nativeWake()`方法唤醒线程；**
+3. 
+4. `MessageQueue.next()`方法被唤醒后，重新开始读取消息链表，第一个消息B无延时，直接返回给Looper；
+5. Looper处理完这个消息再次调用`next()`方法，MessageQueue继续读取消息链表，第二个消息A还没到时间，计算一下剩余时间（假如还剩9秒）继续调用`nativePollOnce()`阻塞；
+6. 直到阻塞时间到或者下一次有Message进队；
+
+这样，基本上就能保证`Handler.postDelayed()`发布的消息能在相对精确的时间被传递给Looper进行处理而又不会阻塞队列了。
+
+### sendMessageAtFrontOfQueue
+
+ ```java
+
+        public final boolean sendMessageAtFrontOfQueue(Message msg) {
+            MessageQueue queue = mQueue;
+            if (queue == null) {
+                RuntimeException e = new RuntimeException(
+                    this + " sendMessageAtTime() called with no mQueue");
+                Log.w("Looper", e.getMessage(), e);
+                return false;
+            }
+            return enqueueMessage(queue, msg, 0);
+        }
+```
+用于向MessageQueue插队消息的方法，它会将Message对象插入到MessageQueue中的最前列，以保证插入的消息最先被Looper取出来，交给Handler处理
+
+1、将Handler对象持有的MessageQueue对象保存在局部变量中
+
+首先获得Handler持有的MessageQueue对象mQueue交给临时变量queue存储
+
+2、检查消息队列，处理未创建消息队列的情况
+
+判断MessageQueue能否为空，创建RuntimeException对象，然后并没有抛出这个异常对象，只是会在logcat中打印这条异常日志的情况，最后返回false代表发送Message失败。
+
+
+
+看needWake的赋值操作，**needWake = mBlocked && p.target == null && msg.isAsynchronous();**这个条件判断是比较严格的，什么时候才会唤醒队列呢？队列是睡眠状态并且队列的第一条消息的target为空(Handler)，待插入的msg为异步消息时才会唤醒队列。
 
 ## 18.4 HandlerThread
 
@@ -3451,6 +4472,75 @@ HandlerThread本质上是一个**线程类**，它继承了Thread；
 HandlerThread有**自己的内部Looper对象**，可以进行looper循环；
 **通过获取HandlerThread的looper对象传递给Handler对象，可以在handleMessage方法中执行异步任务。**
 创建HandlerThread后必须先调用HandlerThread.start()方法，Thread会先调用run方法，创建Looper对象。
+
+###  HandlerThread原理
+
+当系统有多个耗时任务需要执行时，每个任务都会开启个新线程去执行耗时任务，这样会导致系统多次创建和销毁线程，从而影响性能。  
+为了解决这一问题，Google提出了HandlerThread，HandlerThread本质上是一个线程类，它继承了Thread。  
+HandlerThread有自己的内部Looper对象，可以进行loopr循环。通过获取HandlerThread的looper对象传递给Handler对象，可以在handleMessage()方法中执行异步任务。创建HandlerThread后必须先调用HandlerThread.start()方法，Thread会先调用run方法，创建Looper对象。当有耗时任务进入队列时，则不需要开启新线程，在原有的线程中执行耗时任务即可，否则线程阻塞。  
+它在Android中的一个具体的使用场景是IntentService。  
+由于HanlderThread的run()方法是一个无限循环，因此当明确不需要再使用HandlerThread时，可以通过它的quit或者quitSafely方法来终止线程的执行。
+
+---
+
+### HanlderThread的优缺点
+
+- HandlerThread优点是异步不会堵塞，减少对性能的消耗。
+    
+- HandlerThread缺点是不能同时继续进行多任务处理，要等待进行处理，处理效率较低。
+    
+- HandlerThread与线程池不同，HandlerThread是一个串队列，背后只有一个线程。
+    
+
+  
+  
+作者：千夜零一  
+链接：https://www.jianshu.com/p/fdd9f93da885  
+来源：简书  
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
+
+### 线程阻塞和唤醒/nativePollOnce和wake()
+主线程的死循环一直运行是不是特别消耗CPU资源呢？ 
+其实不然，这里就涉及到Linux pipe/epoll（管道）机制，
+简单说就是在主线程的MessageQueue没有消息时，**便阻塞在looper的queue.next()中的nativePollOnce()方法里，此时主线程会释放CPU资源进入休眠状态，直到下个消息到达或者有事务发生nativeWake()，通过往pipe管道写端写入数据来唤醒主线程工作。**
+
+![[682616-20200517210649824-804004537.png]]
+
+这里采用的epoll机制，是一种IO多路复用机制，可以同时监控多个描述符，当某个描述符就绪(读或写就绪)，则立刻通知相应程序进行读或写操作，本质同步I/O，即读写是阻塞的。 所以说，主线程大多数时候都是处于休眠状态，并不会消耗大量CPU资源。
+
+我们需要引入**IO多路复用**的概念。多路复用是指使用一个线程来检查多个文件描述符（Fd）（Socket）的[就绪状态，比如调用select和[poll函数]，传入多个文件描述符，如果有一个文件描述符就绪，则返回，否则阻塞直到超时。得到就绪状态后进行真正的操作可以在同一个线程里执行，也可以启动线程执行（比如使用[线程池]。
+**io多路复用**也叫**事件驱动模型**。
+[[#4. 管道机制]]
+**多路是指**？多个业务方（句柄）并发下来的 IO 。
+
+**复用是指**？复用这一个后台处理程序。
+
+
+#### Handler为何采用管道而非Binder？
+
+handler不采用Binder，并非binder完成不了这个功能，而是太浪费CPU和内存资源了。因为Binder采用C/S架构，一般用于不同进程间的通信。
+
+- 从内存角度：通信过程中Binder还涉及一次内存拷贝，handler机制中的Message根本不需要拷贝，本身就是在同一个内存。Handler需要的仅仅是告诉另一个线程数据有了。
+
+- 从CPU角度，为了Binder通信底层驱动还需要维护一个binder线程池，每次通信涉及binder线程的创建和内存分配等比较浪费CPU资源。
+
+从上面的角度分析可得，Binder用于进程间通信，而Handler消息机制用于同进程的线程间通信，Handler不宜采用Binder。
+
+[](https://www.cnblogs.com/renhui/p/12875396.html#_labelTop)
+
+#### Android 6.0及以后的机制
+
+在Android 6.0及以前的版本使用管道与epoll来完成Looper的休眠与唤醒的。
+
+在Android 6.0及以后的新版本中使用的是eventfd与epoll来完成Looper的休眠与唤醒的。
+
+感兴趣的可以进一步的学习和了解管道的知识及eventfd的知识，并比较一下两种机制的优劣，进而明白Android官方为何对此机制进行调整。
+
+#### 为什么不用 java的wait 而用 epoll 呢？
+
+说起来 java 中的 wait / notify 也能实现阻塞等待消息的功能，在 Android 2.2 及以前，也确实是这样做的。
+那为什么后面要改成使用 epoll 呢？通过看 commit 记录，是需要处理 native 侧的事件，所以只使用 java 的 wait / notify 就不够用了。
+
 
 ## **18.5 消息屏障SyncBarrier**
 ### SyncBarrier的介绍
@@ -3463,6 +4553,8 @@ SyncBarrier大家又称它为同步屏障，这是安卓线程消息队列里面
 Handler中的Message可以分为两类：
 - 同步消息体（优先级高）
 - 异步消息体（优先级低）
+
+new XXXHandler(Loop loop, false/true)
 可以通过`Message.java`的`isAsynchronous()`知道是否为异步消息体
 
 ### SyncBarrier的作用
@@ -3542,11 +4634,10 @@ if (msg != null && msg.target == null) {
 前面提到过，这套东西都是Frameworks层内部的机制，并没有开放给app使用，而Frameworks内部的逻辑一般来说还是相当健壮的，绝大多数时候并不会出问题。当然了，各个厂商内部搞的各种所谓优化，倒是有可能会引发问题。
 
 在实际开发过程中，引发Sync barrier的最多场景就是自定义View。**对于自定义View，是能够在非主线程调用其invalidate的，当有大量的非主线程调用invalidate时，就有可能恰好与主线程的渲染发生交互**，具体case非常corner要刚巧非主线程在postInvalide，**然后主线程也刚巧在发送异步消息，就可能使得Sync barrier没有被移除，从而导致问题。**
+[[#2.2.2 activity启动流程]]
+[[#7.2 View绘制流程]]
 
 这就需要我们在编码阶段做好封装，对于自定义View的刷新触发逻辑做好封装，做一下线程切换，以保证是在主线程里面执行invalidate。因为暴露出去的接口，是没有办法控制的，你没有办法让所有调用者都在主线程里面调用你的接口
-
-### 线程阻塞和唤醒/nativePollOnce和wake()
-nativePollOnce是在
 
 
 ## 18.6 View.post
@@ -3554,14 +4645,69 @@ nativePollOnce是在
 1. 更新 UI 操作
 2. 获取 View 的实际宽高
 
+详细：[[#3）”黑科技“——View.post（）]]
 
 
 
-#  19.ARoute和模块化
+#  19.ARoute和组件化
+[[#52.插件化]]
 
 关键词：postcard，注解，inject（this），apt生成路径，反射
 
 https://blog.csdn.net/dingshuhong_/article/details/104700096
+
+Aroute用到的是apt技术，也就是编译时技术。在编译期执行，包括注解和注解处理器
+利用注解、和注解处理工具（APT）
+在编译期间通过**APT动态生成含有类路由信息的映射文件，在运行期间通过固定的包名对映射文件进行加载**（并且在这里Arouter进行了优化，也就是分组管理、按需加载；实际上是先加载了root文件，然后按需加载group文件），将所有路由文件都存放到本地仓库中，当用户需要时可以通过路由地址在仓库中找到需要的类信息。然后实现项目中的跳转与服务获取。
+
+生成路由表
+
+第一步生成的中间都放在同一个包路径下， 因此生成路由表的操作，其实就是，遍历这些生成类，然后反射创建对象，并调用loadInto方法，将数据保存到仓库WareHouse
+这步有两种方式
+        初始化（运行时）耗时遍历base.apk,扫描到这个两个类，就直接反射创建。
+        gradle插件(auto-register)：编译期利用ASM操作transforms文件夹下的字节码）实现
+
+
+注解类型
+
+    @Route ： 用于描述路径，类被该注解标识才能被自动生成路由信息加入到路由表中。
+    @AutoWired : 用于标识参数，在该页面被路由打开时，自动赋值传递的参数值
+    @Interceptor : 拦截器
+
+```java
+public class MainActivity extends AppCompatActivity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
+        Aroute.getInstance().init(this);
+    }
+
+    public void tologin(View view) {
+    //直接跳转
+        Aroute.getInstance().jumpActivity("app/Component",null);
+    }
+}
+```
+```dart
+// 需要接收消息的组件，要注册Router注解
+@Route(group = "app", path = "/app/Component")
+public class ComponentActivity extends AppCompatActivity {
+
+// 通过Router直接发送事件
+
+// 构造参数
+Bundle bundle = new Bundle();
+        bundle.putString("data", "data from other module");
+        // 发送事件
+        ARouter.getInstance()
+                .build("/app/Component") // 跳转页面路由地址
+                .with(bundle) // 传参
+                .navigation();
+```
+
+
 
 # 20. 响应式编程 RXJAVA
 
@@ -3569,7 +4715,7 @@ https://blog.csdn.net/dingshuhong_/article/details/104700096
 
 主要目的就是实现异步，可以非常简便地实现异步调用，在复杂的代码调用中仍然可以保持阅读性。提供了很多操作符，减少了handler的获取message的麻烦。
 
-设计原理主要使用了观察者模式。
+设计原理主要使用了观察者模式的变种，只有一个观察者。
 
 
 
@@ -3586,6 +4732,7 @@ https://blog.csdn.net/dingshuhong_/article/details/104700096
    
 
 5. subjectSubject在同一时间内，既可以作为Observable，也可以作为Observer
+6. 特殊操作符实际上也是新建一个Observable，将上个事件消费处理并传入新建的Observerable
 
 ```java
 /*     PublishSubject只会给在订阅者订阅的时间点之后的数据发送给观察者。
@@ -3604,8 +4751,10 @@ https://blog.csdn.net/dingshuhong_/article/details/104700096
 ## 20.2 基本使用
 
 定义Observable（被观察者），重写subscribe()；
+本质上就是subscribe内传入observer，在上游的被观察者中被调用onNext，onComplete等方法。
 
-定义observer观察者，进行通知接收
+observer观察者，进行通知接收。
+**如果是其他操作符其实也是返回一个new了一个Obeserver的子类型对象，只有调用subscribe之后才会被激活递归调用。**
 
 进行订阅
 
@@ -3679,7 +4828,7 @@ Observable.just(list).flatMap(new Function<List<String>, ObservableSource< ?>>()
 
 ### **操作符汇总**
 
-![image-20220909120413866](pic\image-20220909120413866.png)
+![image-20220909120413866](image-20220909120413866.png)
 
 
 
@@ -3689,7 +4838,9 @@ Observable.just(list).flatMap(new Function<List<String>, ObservableSource< ?>>()
 
 
 
-  **Scheduler** 相当于线程控制器（线程池），RxJava 通过它来指定每一段代码应该运行在什么样的线程。
+  **Scheduler** 相当于线程控制器（静态线程池），RxJava 通过它来指定每一段代码应该运行在什么样的线程。**实现底层也实际是Handler进行通信。**
+observeOn()之后的才是
+
 
 1. **Schedulers.immediate():直接在当前线程运行，相当于不指定线程。这是默认的 Scheduler。**
 2. **Schedulers.newThread(): 总是启用新线程，并在新线程执行操作**
@@ -3698,10 +4849,9 @@ Observable.just(list).flatMap(new Function<List<String>, ObservableSource< ?>>()
 5. Android 还有一个专用的AndroidSchedulers.mainThread()，它指定的操作将在 Android 主线程运行。
 6. subscribeOn(): 指定Observable(被观察者)所在的线程，或者叫做事件产生的线程。
 7. observeOn(): 指定 Observer(观察者)所运行在的线程，或者叫做事件消费的线程。
+8. **Disposable, 这个单词的字面意思是一次性用品,用完即可丢弃的。在RxJava中,用它来切断Observer(观察者)与Observable(被观察者)之间的连接，当调用它的dispose()方法时, 它就会将Observer(观察者)与Observable(被观察者)之间的连接切断, 从而导致Observer(观察者)收不到事件。subscribe之后就是返回一个该类型**
 
- 
-
-​     8,Disposable**\**, 这个单词的字面意思是一次性用品,用完即可丢弃的。在RxJava中,用它来切断Observer(观察者)与Observable(被观察者)之间的连接，当调用它的dispose()方法时, 它就会将Observer(观察者)与Observable(被观察者)之间的连接切断, 从而导致Observer(观察者)收不到事件。
+## 
 
 ## 20.4 retrofit + okhttp + rxjava
 
@@ -3736,8 +4886,19 @@ OKhttp会通过dispatch事件分发器将请求对象发送到RealCall 类，**�
 **Ok的拦截器总共分为七个，在执行线程的时候就会走Interceptor。**
 
 **最后****生成一个响应体Body由通过被观察者发送一个**事件**(just)**  
-## 20.5 源码分析
 
+
+
+## 20.5 源码分析
+## Rxjava2.0背压
+为什么有背压？是为了解决短时间上游发送太次数据，下游来不及处理，那么消息队列就会越来越长。
+
+**背压模式，上游同步发射总结：**
+
+- **ERROR:上游发射事件不能超过128个，并且上游发射的事件如果下游没有及时处理(调用request()方法)，都会抛出异常。**
+- **BUFFER:该模式下不会出现异常，并且发射的事件数量不受限制**
+- **DROP:上游发射事件超过128个，将会丢弃掉剩余的事件**
+- **LASTEST:上游发射事件超过128个，将会丢弃掉缓存池所有的事件，但是仍然会缓存发送最后的一次事件。**
 
 #  21.动画
 
@@ -3746,6 +4907,30 @@ OKhttp会通过dispatch事件分发器将请求对象发送到RealCall 类，**�
 帧动画、补间动画、属性动画 
 
 ![](微信截图_20210314010524.png)
+
+animatior补间动画：我们一般是通过animation xml获取到animation再进行播放
+animation属性动画：通过animator进行数值变化的监听并进行操作，或者使用ObjectAnimator进行操作。
+```dart
+
+//直接播放一系列的animator
+AnimatorSet animatorSet = new AnimatorSet();
+        //移动
+        ObjectAnimator ty = ObjectAnimator.ofFloat(btn, "translationY", 0,300);
+        ty.setDuration(1000);
+        //旋转
+        ObjectAnimator ry = ObjectAnimator.ofFloat(btn, "rotationY", 0,1080);
+        ry.setDuration(1500);
+        //透明度
+        ObjectAnimator alpha = ObjectAnimator.ofFloat(btn, "alpha", 1,0,0.5f,1);
+        alpha.setDuration(2000);
+        //缩放
+        ObjectAnimator sx = ObjectAnimator.ofFloat(btn, "scaleX", 1,0.5f);
+        alpha.setDuration(1000);
+        //一起播放
+//      animatorSet.playTogether(items);
+        animatorSet.play(ry).with(sx).after(ty).before(alpha);
+        animatorSet.start();
+```
 
 ## 2.动画库
 
@@ -3844,7 +5029,14 @@ https://jfson.github.io/2018/01/08/41-anim/
 
 lifecyle组件viewmodel：https://www.jianshu.com/p/35d143e84d42
 
-viewmodel
+## viewmodel
+### 解决问题
+### 数据持久化
+
+我们知道在屏幕旋转的 时候 会经历 activity 的销毁与重新创建，这里就涉及到数据保存的问题，显然重新请求或加载数据是不友好的。在 ViewModel 出现之前我们可以用 activity 的onSaveInstanceState()机制保存和恢复数据，但缺点很明显，onSaveInstanceState只适合保存少量的可以被序列化、反序列化的数据，假如我们需要保存是一个比较大的 bitmap list ，这种机制明显不合适。  
+由于 ViewModel 的特殊设计，可以解决此痛点。
+
+
 
 ## MVC
 
@@ -4013,14 +5205,24 @@ Retrofit retrofit = new Retrofit.Builder()
 ```
 
 Retrofit接口的返回值分为两部分，一部分是前面的**Call**或者**Observable**，另一部分是**String**。
-1）addCallAdapterFactory影响的就是第一部分的Call或者Observable，Call类型是默认支持的(内部由DefaultCallAdapterFactory支持)，而如果要支持Observable，我们就需要自己添加
+1）addCallAdapterFactory影响的就是第一部分的Call或者Observable，Call类型是默认支持的(内部由DefaultCallAdapterFactory支持)，而如果要支持Observable或者flow，我们就需要自己添加或者自己实现callAdapter
 
 
 
 ## 流程
 
-使用了动态代理的方式，获取service上的注解 + 形参的方式等数据，建造者模式设置配置，将对应的方法和参数传入OkHttpCall ，最终调用Call的enqueue()—>OkHttpCall的enqueue()—>okhttp的enqueue() 。如果需要配置自定义的okhttp拦截器获取日志，则需要添加自己创建的okhttp客户端。
+建造者模式设置配置，调用create时通过反射获取service api接口方法上的 注解 + 形参 的方式等数据，使用了动态代理的方式生成ServiceMethod方法，并且进行缓存，然后执行对应的方法，
+将对应的方法和参数传入OkHttpCall ，最终调用Call的enqueue() —> OkHttpCall的enqueue() —> okhttp的enqueue() 。如果需要配置自定义的okhttp拦截器获取日志，则需要添加自己创建的okhttp客户端。
 
+思考：
+那么需要把retrofit做成单例吗？
+请求多的时候做成单例比较合适，做一个RetrofitWarrper，这样子调用Retorfit的时候就可以充分利用缓存。单个页面重复某个亲请求多次的时候（比如商品列表），那该activtiy就一直用同一个Retrofit即可。
+
+
+那么可以添加多个CallAdapter吗? 
+可以，Retofit会自动遍历返回值类型查找对应的callAdapter
+## 核心技术
+	注解，大量反射，动态代理，泛型
 
 
 ## 注解方法
@@ -4088,6 +5290,8 @@ https://www.jianshu.com/p/d19c34e7e9bd
 
 - 在system_server中触发WatchDog ANR
 
+- 消息屏障泄漏
+
  
 
 # 25. [Listview和RecyclerView](https://www.cnblogs.com/nyyy/p/6442478.html)
@@ -4149,13 +5353,15 @@ public View getView(int position, View convertView, ViewGroup parent) {
 
 recyclerview缓存详解：http://www.360doc.com/content/19/0712/11/36367108_848240455.shtml
 
-RecyclerView的缓存分为四级
+recycleview有四级缓存：
 
-- **Scrap** 对应listview的active view
-- **Cache **存储屏幕外的ViewHolder会被缓存在 mCachedViews 
-- **ViewCacheExtension** 可自定义的一层缓存
-- **RecycledViewPool **用来缓存ViewHolder用，如果多个RecyclerView之间用setRecycledViewPool(RecycledViewPool)设置同一个RecycledViewPool，他们就可以共享ViewHolder 
+- mAttachedScrap(屏幕内)，用于屏幕内itemview快速重用，不需要重新createView和bindView
 
+- mCacheViews(屏幕外)，保存最近移出屏幕的ViewHolder，包含数据和position信息，复用时必须是相同位置的ViewHolder才能复用，应用场景在那些需要来回滑动的列表中，当往回滑动时，能直接复用ViewHolder数据，不需要重新bindView。
+
+ - mViewCacheExtension(自定义缓存)，不直接使用，需要用户自定义实现，默认不实现。
+
+  - mRecyclerPool(缓存池)，**当cacheView满了后或者adapter被更换**，将cacheView中移出的、ViewHolder放到Pool中，**放之前会把ViewHolder数据清除掉，所以复用时需要重新bindView**。这个缓存池是一个二维数组 外部是ScrapData 的SparseArray数组，内部是ArrayList数组。
 
 ```java
 public final class Recycler {
@@ -4186,6 +5392,8 @@ public final class Recycler {
 **mCachedViews** 与 **mRecyclerPool** 这两个缓存一般说的是页面滑动的时候的缓存。
 
   mAttachedScrap 与 mChangedScrap 如果在布局完成之后还有多余的ViewHolder 也会直接全部丢进mRecyclerPool
+![[306d8170728837dcfe71a2244ae2b7c2.png]]
+
 
 ##  适配器
 
@@ -4284,19 +5492,26 @@ destroyItem是fm进行了remove
    2）**Dalvik为32位；ART是64位并兼容32位**。
    3）**ART对GC机制进行了优化**。
    4）运行时堆空间划分不同。具体可参考Android内存优化(如下)
-
    5）支持多dex加载，优先加载classes.dex
-
    
 
-   Dalvik内存管理特点是:内存碎片化严重，当然这也是Mark and Sweep算法带来的弊端
+   Dalvik内存管理特点是:   内存碎片化严重，当然这也是Mark and Sweep算法带来的弊端
 
    [![img](https://camo.githubusercontent.com/b552fa6b7ee884a669d9ab772aa55b0d412a92b0/687474703a2f2f75706c6f61642d696d616765732e6a69616e7368752e696f2f75706c6f61645f696d616765732f333938353536332d663137306434386630383939326233642e706e673f696d6167654d6f6772322f6175746f2d6f7269656e742f7374726970253743696d61676556696577322f322f772f31323430)](https://camo.githubusercontent.com/b552fa6b7ee884a669d9ab772aa55b0d412a92b0/687474703a2f2f75706c6f61642d696d616765732e6a69616e7368752e696f2f75706c6f61645f696d616765732f333938353536332d663137306434386630383939326233642e706e673f696d6167654d6f6772322f6175746f2d6f7269656e742f7374726970253743696d61676556696577322f322f772f31323430)
 
    可以看出每次gc后内存千疮百孔，本来连续分配的内存块变得碎片化严重，之后再分配进入的对象再进行内存寻址变得困难。
    
-   ART的解决:在ART中,它将Java分了一块空间命名为Large-Object-Space,**这块内存空间的引入用来专门存放large object**。同时ART又引入了moving collector的技术,即将不连续的**物理内存块进行对齐**.对齐了后内存碎片化就得到了很好的解决.Large-Object-Space的引入一是因为moving collector对大块内存的位移时间成本太高,而且提高内存的利用率 根官方统计，ART的内存利用率提高10倍了左右。
+   ART的解决:在ART中,它将Java分了一块空间命名为Large-Object-Space, **这块内存空间的引入用来专门存放large object**。同时ART又引入了moving collector的技术,即将不连续的**物理内存块进行对齐**.对齐了后内存碎片化就得到了很好的解决.Large-Object-Space的引入一是因为moving collector对大块内存的位移时间成本太高,而且提高内存的利用率 根官方统计，ART的内存利用率提高10倍了左右。
+   
+   ART 有多个不同的 GC 方案，这些方案包括运行不同垃圾回收器。**默认方案是 CMS（并发标记清除）
+   
+   ART主要使用粘性 CMS 和部分 CMS。粘性 CMS 是 ART 的不移动分代垃圾回收器。它仅扫描堆中自上次 GC 后修改的部分，并且只能回收自上次 GC 后分配的对象。除 CMS 方案外，当应用将进程状态更改为察觉不到卡顿的进程状态（例如，后台或缓存）时，ART 将执行堆压缩。也就是说，可以认为是CMS(Concurrent Mark-Sweep)，但是不同情况又有不同的使用，主要是粘性CMS和分部CMS的区别。
 
+
+
+
+
+**Dalvik虚拟机执行的是dex字节码，ART虚拟机执行的是本地机器码**。
 
 ## dex结构
 dex文件结构, 与class的区别在与索引头区里，class文件直接是
@@ -4315,6 +5530,12 @@ Android提供了一个专门验证与优化dex文件的工具dexopt。其源码�
 ![[7182360-9c46c9a5683bf00f.webp]]
 通过上图可以很明显的看出 dexopt 与 dex2oat 的区别，前者针对 Dalvik 虚拟机，后者针对 Art 虚拟机。
 
+- class：java编译后的⽂件，每个类对应⼀个class⽂件
+- dex：Dalvik EXecutable把class打包在⼀起，⼀个dex可以包含多个class⽂件
+- odex：Optimized DEX针对系统的优化，例如某个⽅法的调⽤指令，会把虚拟的调⽤转换为使⽤具体的index，这样在执⾏的时候就不⽤再查找了
+- oat：Optimized Androidfile Type。使⽤AOT策略对dex预先编译（解释）成本地指令，这样再运⾏阶段就不需再经历⼀次解释过程，程序的运⾏可以更快
+- AOT：Ahead-Of-Time compilation预先编译
+
 - dexopt 是对 dex 文件 进行 verification 和 optimization 的操作，其对 dex 文件的优化结果变成了 odex 文件，这个文件和 dex 文件很像，只是使用了一些优化操作码（譬如优化调用虚拟指令等）。
     
 - dex2oat 是对 dex 文件的 AOT 提前编译操作，其需要一个 dex 文件，然后对其进行编译，结果是一个本地可执行的 ELF 文件，可以直接被本地处理器执行。
@@ -4322,7 +5543,10 @@ Android提供了一个专门验证与优化dex文件的工具dexopt。其源码�
 
 除此之外在上图还可以看到 Dalvik 虚拟机中有使用 JIT 编译器，也就是说其也能将程序运行的热点 java 字节码编译成本地 code 执行，所以其与 Art 虚拟机还是有区别的。Art 虚拟机的 dex2oat 是提前编译所有 dex 字节码，而 Dalvik 虚拟机只编译使用启发式检测中最频繁执行的热点字节码。
 
-  
+## dex加載流程
+
+[[#52.插件化]]
+
 ## 28.3常见问题
 
 应用程序如何突破dalvik.vm.heapsize 的限制。
@@ -4333,7 +5557,6 @@ Android提供了一个专门验证与优化dex文件的工具dexopt。其源码�
 
   
   
-著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
 # 29.LruCache
 
 LruCache是一种缓存策略，持有的是强引用，但是会控制在一个峰值下。**它内部维护了一个队列**，**每当从中取出一个值时**，**该值就移动到队列的头部**。**当缓存已满而继续添加时，会将队列尾部的值移除，方便GC**。LruCache用于内存缓存，在避免程序发生OOM和提高执行效率有着良好表现。
@@ -4698,17 +5921,20 @@ Android 密钥库密钥使用两项安全措施来避免密钥材料被提取：
 
 
 # 39.MMKV 与SP
+[[#sharedPrefenrence (简介， 详细对比见39)]]
 
-**sharedPrefences：**
+## **sharedPrefences：**
 
 MMKV 是sharedP的优化, sp初始化子线程读取xml存在arraymap中，final map存在k name和v xml文件 ，会持续占用内存
 
 commit（同步） apply（异步）都会anr 异步任务过多，等待锁过多（锁会放到Queuework中），activity onstop或者service onstop onstartcommand时候会等待queuework释放（Queuework.waitToFinish）
 
+
+
 **sp更新是全量更新**
 
-**MMKV:**（优化sp）
-
+## **MMKV:**（优化sp）
+高性能，支持多进程（文件锁，数据同步用的是校验码）
 mmkv的优化：
 解决方案1：mmap内存映射→零拷贝技术。java filechannel底层也是mmap。m-map映射之后存在map中。
 
@@ -4722,15 +5948,27 @@ mmkv的优化：
 
 # 40.LeakCanary
 
-LeakCanary的基础是一个叫做ObjectWatcher Android的library。`它hook了Android的生命周期，当activity和fragment 被销毁并且应该被垃圾回收时候自动检测。`
+LeakCanary的基础是一个叫做ObjectWatcher Android的library。
+
+`它通过lifcyclercallback   去hook了Android的生命周期，当activity和fragment 被销毁并且应该被垃圾回收时候自动检测。`
+
 在application注册lifecyclercallback，对fragment使用fragmentmanger和子fragment使用childfragmentmanager也进行注册callback。
 
-这些被销毁的对象被传递给ObjectWatcher， ObjectWatcher持有这些被销毁对象的弱引用（weak references）。如果弱引用在等待5秒钟并运行垃圾收集器后仍未被清除，那么被观察的对象就被认为是保留的（retained，在生命周期结束后仍然保留），并存在潜在的泄漏。
+这些被销毁的对象被传递给ObjectWatcher，`ObjectWatcher持有这些被销毁对象·弱引用（weak references）`。如果`弱引用在等待5秒钟并运行垃圾收集器后仍未被清除`，那么被观察的对象就被认为是保留的（retained，在生命周期结束后仍然保留），并存在潜在的泄漏。
+
+接下来输出dump日志分析。
 
 
 # 41.Hook
 
+一般通过 反射 或者动态代理。插桩也可以，还有activtiy的lifecyclercallback。符合切面编程的修改执行流程都能叫hook。
+我们在热修复、插件化中大量hook的实现。
+
+还有root后的xposed框架。
 # 42.插件化
+
+
+[[#52.插件化]]
 
 # 43.Bitmap与Bitmap优化
 
@@ -4762,6 +6000,59 @@ rgb565 RGB8888等等
 
 - decodeResoure 是项目中常见的API，同样也存在此问题，可以使用decodeResourceStream代替
 
+## Bitmap源码解析
+通过native方法的naitivecreate创建在本地内存。可以看到，**内存大小跟bitmap长宽和颜色类型有关**，用的是skia渲染。
+
+![[截图20230826162811.png]]
+
+```cpp
+//frameworks\base\core\jni\android\graphics
+static jobject nativeDecodeStream(JNIEnv* env, jobject clazz, jobject is, jbyteArray storage,  
+        jobject padding, jobject options) {  
+    //创建一个bitmap对象  
+    jobject bitmap = NULL;  
+    //创建一个输入流适配器,(SkAutoTUnref)自解引用  
+    SkAutoTUnref<SkStream> stream(CreateJavaInputStreamAdaptor(env, is, storage));  
+  
+    if (stream.get()) {  
+        SkAutoTUnref<SkStreamRewindable> bufferedStream(  
+                SkFrontBufferedStream::Create(stream, BYTES_TO_BUFFER));  
+        SkASSERT(bufferedStream.get() != NULL);  
+        //图片解码  
+        bitmap = doDecode(env, bufferedStream, padding, options);  
+    }  
+    //返回图片对象,加载失败的时候返回空  
+    return bitmap;  
+}
+
+```
+
+
+```cpp
+extern "C"  
+JNIEXPORT jstring JNICALL  
+Java_com_example_flu_MainActivity_loadBitmap(JNIEnv *env, jobject thiz, jobject bitmap) {  
+    AndroidBitmapInfo *info;  
+    AndroidBitmap_getInfo(env, bitmap, info);  
+    int width = info->width;  
+    int height = info->height;  
+    
+    int* pixel = nullptr;  
+    AndroidBitmap_lockPixels(env, bitmap, reinterpret_cast<void **>(pixel));  
+    int* pxl = pixel;//拿到像素点  
+    int *line;  
+    
+    for (int x= 0; x < height;x++){  //操作像素点
+        line = pxl;  
+        for(int y = 0; y < width; y++){  
+            line[y] = 0xFF0000FF;  
+        }  
+    }  
+}
+
+```
+## bitmap的复用
+主要指的是复用native内存块。4.4之前复用只能使用相同大小的bitmap内存区域，4.4之后只要比将要分配的内存大就可以复用。此处最好用LRUcache来复用。
 # 44.启动优化
 
 **启动模式：**
@@ -4878,11 +6169,16 @@ public void onWindowFocusChanged(boolean hasFocus) {
 
 # 45.热修复
 
-android类加载机制：Android的类加载和Java的类加载比较类似，都是通过ClassLoader类加载器进行加载，唯一的区别就是Android类加载器加载的是dex文件，所以在Android中加载器的基类叫做BaseDexClassLoader，这个类之下会有两个子类，一个叫做PathClassLoader，它负责加载Android的SDK，当代码中引用到Android框架的本身类的时候都是通过PathClassLoader进行加载的；而另外一个子类叫做DexClassLoader，这个类就是用于加载业务层面代码的加载器。
+相关：[[#52.插件化]]
+
+一个叫做BootClassLoader，它负责加载Android的SDK，当代码中引用到Android框架的本身类的时候都是通过BootClassLoader进行加载的。
+android类加载机制：Android的类加载和Java的类加载比较类似，都是通过ClassLoader类加载器进行加载，唯一的区别就是Android类加载器加载的是dex文件，所以在Android中加载器的基类叫做BaseDexClassLoader，这个类之下会有两个子类
+
+- PathClassLoader 和 DexClassLoader **都能加载外部的 dex／apk**，只不过区别是 DexClassLoader 可以**指定 optimizedDirectory**，也就是 dex2oat 的产物 .odex 存放的位置，
+- 而 PathClassLoader 只能使用系统默认位置。但是这个 optimizedDirectory 在 Android 8.0 以后也被舍弃了，只能使用系统默认的位置了。
 
 链接：https://juejin.cn/post/6844903508865449991
 来源：稀土掘金
-
 
 
 推荐
@@ -4893,9 +6189,12 @@ android类加载机制：Android的类加载和Java的类加载比较类似，�
 
 ### 1、插桩
 
+[[#54. 字节码插桩]]
+
 ![[3b40d1c776ea80ad64be32e152cb0c86~tplv-t2oaga2asx-zoom-in-crop-mark 3024 0 0 0.webp]]
 
-多个dex文件加载到内存中时形成dexElement数组，DexClassLoader当系统需要加载会遍历该数组，将补丁dex放到该数组第一个
+多个dex文件加载到内存中时形成**dexElement数组**，DexClassLoader当系统需要加载会遍历该数组，**将补丁dex放到该数组第一个**，第一个dex先加载了该类，后面执行的时候就会优先读取 。
+类似 [[JAVA基础--JAVA数据结构--JVM#0 类与其加载机制和加载器]]
 
 而实际情况中，做这样的方案是不行的。直接进行替换就会出现预校验的问题。
 
@@ -4904,12 +6203,13 @@ android类加载机制：Android的类加载和Java的类加载比较类似，�
 
 预检验问题是app安装时会存在dex opt操作变成odex文件（优化dex的操作）
 
-当**某一个类所有的构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候**，这个类就会被打上class_ispreverified标签。所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误
+当**某一个类所有的构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候**，这个类就会被打上**class_ispreverified**标签。所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误。
 
 
-解决的思路是当这些类已经被编译完成之后，在字节码的层面去注入一些来自于其他dex的类。
+解决的思路是当这些类已经被编译完成之后，在**字节码的层面去注入一些来自于其他dex的类**,也就是**插桩**。[[#54. 字节码插桩]]
 
-Android的gradle插件也提供了这样的一些接口，叫做Transform的API。这个API会提供一个调用的时机，当代码文件被编译成JAR但是还没有被打成dex的时候，提供了在这个时期做一些事情的接口。正是利用这个接口，当拿到编译完成的字节码文件之后，可以对其进行字节码的注入，进行所谓的插桩，插入一些来自于其他dex文件的类，这样当App再被安装并执行dex    opt过程的时候就不会再被打上预校验的标签
+Android的gradle插件也提供了这样的一些接口，叫做Transform的API。这个API会提供一个调用的时机，当代码文件被编译成JAR但是还没有被打成dex的时候，提供了在这个时期做一些事情的接口。
+正是利用这个接口，当拿到编译完成的字节码文件之后，可以对其进行字节码的注入，进行所谓的插桩，插入一些来自于其他dex文件的类，这样当App再被安装并执行dex    opt过程的时候就不会再被打上预校验的标签
 
 
 
@@ -4944,6 +6244,8 @@ b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
 ## 3、Tinker
 
 ## 4、sophix
+
+
 
 # 46.JETPACK--ROOM
 
@@ -5106,6 +6408,19 @@ fun main() = runBlocking<Unit> {
 
    当发送完毕后，记得调用`channel.close()`，`close()`操作就像向通道发送了一个特殊的关闭指令。 这个迭代停止就说明关闭指令已经被接收了。所以这里保证所有先前发送出去的元素都在通道关闭前被接收到。
 
+
+## 线程的实现原理
+
+这里先总结出Kotlin协程在执行过程中会出现的一些概念，避免在后续源码分析中出现混淆：
+
+- 协程体：协程中要执行的操作，它是一个被suspend修饰的lambda 表达式;
+- 协程体类:编译器会将协程体编译成封装协程体操作的匿名内部类;
+- 协程构建器:用于构建协程的函数，比如launch，async;
+- 挂起函数:由suspend修饰的函数，挂起函数只能在挂起函数或者协程体中被调用,可以在挂起函数中调用其它挂起函数实现不阻塞当前执行线程的线程切换，比如withContext()，但挂起函数并不一定会挂起，如果没有执行挂起操作;
+- 挂起点：一般对应挂起函数被调用的位置;
+- 续体:续体的换概念可以理解为挂起后，协程体中剩余要执行代码，笔者在文章中，将其看作为协程体类，在协程体类中封装了协程的要执行的操作，由状态机的状态将操作分割了成不同的片段，每一个状态对应不同代码片段的执行，可以与续体的概念对应。
+
+
 # 48.JETPACK--Navigation
 
 简述：主要应用于导航栏之间fragment的跳转，或者fragmnet->activtiy
@@ -5231,13 +6546,145 @@ class Cook{
 
 # 51.跨进程通信
 
-## 1.IBINDER
+## 传统IO
+![[截图20230818021640.png]]
 
 ## 2.广播
+基于binder
 
-## 3.SOCKET
+## 3.SOCKET 套接字
+两种：
+网络：internet socket 
+系统间：Unix Domian SOCKET
+
+两次拷贝，c/s安全性不可靠，身份不可靠、
+
+两次拷贝
+
+## 4. 管道机制
+Handler  采用的管道通信[[#线程阻塞和唤醒/nativePollOnce和wake()]]
+
+## 5. 共享内存
+无需拷贝到内核空间，实现和控制复杂，双端自行处理并发同步等问题。访问接入点不安全，访问内存的身份不确定。
+
+
+## BINDER
+
+启动时机：[[#ServiceManager]]
+binder是linux内核的一个重要驱动，是Android系统上核心的进程通信方式，系统进程初始化时的通信，intent数据，ams与acitviy，wms与window，windowmanager通信都是通过Binder机制。
+**实现原理是通过内存映射mmap进行的，实现一次拷贝, 基于C/S架构安全稳定。内核添加了PID身份识别**
+
+![[截图20230818021308.png]]
+
+
+由idle进程创建时挂载驱动，由serviceMangaer进程创建时通过ProcessState初始化binder驱动，并且由它管理各个service的binder。
+
+![[截图20230817200243.png]]
+
+### ProcessState的初始化
+
+ProcessState的主要关键点有以下几个：
+
+- 保证同一进程只有一个ProcessState实例，且只有在ProcessState对象建立时才打开Binder设备以及做内存映射
+- 向上层提供IPc服务
+- 与IPCThreadState分工
+
+
+我们先来分析main中的第一步，也就是ProcessState::self()的过程。
+
+```cpp
+    @ProcessState.cpp(google-code\frameworks\native\libs\binder\)sp<ProcessState>
+     ProcessState::self() {
+     if (gProcess != NULL) 
+	     return gProcess;
+     AutoMutex _l(gProcessMutex);
+     if (gProcess == NULL) 
+	     gProcess = new ProcessState;
+     return gProcess;}
+```
+
+这里我们看到， **ProcessState是一个单例模式，一个进程有一个ProcessState对象**。如果初始化过了（gProcess!=NULL），就直接返回给客户端使用即可，没有的话需要创建ProcessState对象。这里我们假设当前没有被初始化过，那么就会调用他的构造函数：
+
+```cpp
+//大小，1m - 两个内存分页大小 = 1mb - 8kb
+	#define BINDER_VM_SIZE_(1 * 1024 * 1024 - sysconf(_SC_PAGE_SIZE * 2))
+	
+    ProcessState::ProcessState(): 
+    mDriverFD(open_driver()), //打开驱动
+    mVMStart(MAP_FAILED), 
+    mManagesContexts(false), 
+    mBinderContextCheckFunc(NULL), 
+    mBinderContextUserData(NULL), 
+    mThreadPoolStarted(false), 
+    mThreadPoolSeq(1) {
+	    if (mDriverFD >= 0) {
+	    
+	    //映射内存
+	    mVMStart = mmap(0, BINDER_VM_SIZE, PROT_READ, MAP_PRIVATE | MAP_NORESERVE, mDriverFD, 0);
+	    if (mVMStart == MAP_FAILED) {
+		    close(mDriverFD);
+		    mDriverFD = -1;
+	    }}
+    }
+```
+
+        在他的初始化过程中，主要完成了两个重要步骤：  
+        1、 **通过open_driver打开binder驱动**，并把binder设备句柄传给mDriverFD  
+        2、 **通过mmap()将一块内核地址映射到用户空间，作为buffer传输数据**。  
+
+        由此，就完成了ProcessState的初始化工作。
+        
+### IPCThreadState
+
+代码位置：/frameworks/native/libs/binder/IPCThreadState.cpp
+
+1. 单实例构造函数：
+```c
+IPCThreadState* IPCThreadState::self()
+{
+    if (gHaveTLS) { 
+    //当执行完第一次之后，再次运行的时候就已经有IPCThreadState实例，只需要获取就可以使用
+restart:
+        const pthread_key_t k = gTLS;
+        IPCThreadState* st = (IPCThreadState*)pthread_getspecific(k);
+        if (st) return st;
+        return new IPCThreadState;
+    }
+
+    if (gShutdown) {
+        ALOGW("Calling IPCThreadState::self() during shutdown is dangerous, expect a crash.\n");
+        return NULL;
+    }
+
+    pthread_mutex_lock(&gTLSMutex);
+    if (!gHaveTLS) {       
+    //初始的gHaveTLS的值false，所以第一次调用的时候，会执行这里的代码
+    //随后将gHaveTLS设置为true
+        int key_create_value = pthread_key_create(&gTLS, threadDestructor);
+        if (key_create_value != 0) {
+            pthread_mutex_unlock(&gTLSMutex);
+            ALOGW("IPCThreadState::self() unable to create TLS key, expect a crash: %s\n",
+                    strerror(key_create_value));
+            return NULL;
+        }
+        gHaveTLS = true;
+    }
+    pthread_mutex_unlock(&gTLSMutex);
+    goto restart;
+}
+```
+- 现有的调用分析顺序是：</br>  
+    getService@ServiceManagerProxy-->transact@BinderProxy-->transact@BpBinder-->transact@IPCThreadState</br>
+- 不管是读取还是写入，Binder驱动都只是发挥中间人的作用，真正处理请求的还是Binder Client以及Binder Server双方。
+- 真正与Binder打交道的地方时talkWithDriver中的ioctl()
+
+
+### 问题
+1. binder支持多线程吗？支持，内部会上同步锁，这也是为什么forkZygote使用socket(UDS)防止新进程死锁。
+2. intent为什么不支持传输大数据？
 
 ## 4.AIDL
+基于binder
 
 AIDL机制Binder机制图。
 
@@ -5249,10 +6696,168 @@ aild创建说明:
 在实现 AIDL 接口时，您应注意遵守以下规则： 
 
 - 由于无法保证在主线程上执行传入调用，因此您一开始便需做好多线程处理的准备，并对您的服务进行适当构建，使其达到线程安全的标准。
-- **默认情况下，RPC 调用是同步调用**。如果您知道服务完成请求的时间不止几毫秒，则不应从 Activity  的主线程调用该服务，因为这可能会使应用挂起（Android 可能会显示“Application is Not Responding”对话框）—  通常，您应从客户端内的单独线程调用服务。 
+- **默认情况下，RPC 调用是同步调用**。如果您知道服务完成请求的时间不止几毫秒，则不应从 Activity  的主线程调用该服务，因为这可能会使应用挂起（Android 可能会显示“Application is Not Responding”对话框）—  通常，您应从客户端内的单独线程调用服务。 //服务端运行在服务端的binder线程池，但是客户端的会被挂起。
 - 您引发的任何异常都不会回传给调用方。
+## 基本使用
+创建一个aidl文件，语法跟接口一样
+```java
+package android.os;
+
+/** {@hide} */
+interface IMyTestService
+{
+    void open();
+    void close();
+}
+```
+
 
 ## AIDL原理解析
+
+AIDL实现的binder是没有在serviceManger中注册的，也就是意味着他是匿名的binder，
+![[截图20230823031210.png]]
+![[20140405215455890.png]]
+**我们如果通过AIDL去编写的话，Application.mk会帮我们编译aidl文件生成对应的stub类、proxy类和对应的客户端可调用的接口。**
+asInterface()：客户端在ServiceConnection通过IStudentService.Stub.asInterface(IBinder)，
+会根据是同一进行通信， 还是不同进程通信，返回Stub()实体，或者Stub.Proxy()代理对象
+
+
+```kotlin
+interface IDieDieService: IInterface{//用于ServiceConnection时的IBind.asInterface  
+    fun goDie()  
+    fun goDieDie(parcel:String):String?  
+  
+     abstract class Stub: Binder(), IDieDieService {  
+         val first = 1;  
+         val goDie = first +1  
+         val goDieDie = first +2  
+        companion object{  
+            val DESCRIPTOR = "com.example.asmbytecodeinsertapp.aidl.Iservice"  
+           val TRANSACTION_goDie = IBinder.FIRST_CALL_TRANSACTION + 0;  
+           val TRANSACTION_goDieDie = IBinder.FIRST_CALL_TRANSACTION + 1;  
+  
+            fun asInterface( obj:IBinder):Proxy?{  
+  
+                if (obj == null) {  
+                    return null;  
+                }  
+  
+                 val iin: IInterface? = obj.queryLocalInterface(DESCRIPTOR);  
+                if (iin != null && (iin is IDieDieService)) {  
+                    return iin as IDieDieService;  
+                }  
+  
+                // 传入binder对象，返回一个服务代理对象  
+                return  Proxy(obj);  
+  
+            }  
+        }  
+  
+         override fun onTransact(code: Int, data: Parcel, reply: Parcel?, flags: Int): Boolean {  
+             when (code) {  
+                 TRANSACTION_goDieDie->{  
+                     // 获取IBinder接口标志  
+                     data.enforceInterface(DESCRIPTOR);  
+                     val readString = data.readString()//代理对象传过来  
+                     return if (!TextUtils.isEmpty(readString)){  
+                         //这个是服务端自己实现 方法,获取返回值  
+                         val stringResult = this.goDieDie(readString);  
+                         reply?.writeString(DESCRIPTOR);  
+                         true;                     }else{  
+                         false;  
+                     }  
+  
+                 }else{  
+                    return false;  
+                 }  
+             }  
+         }  
+    }  
+  
+
+    class Proxy(val remote: IBinder) :IDieDieService{  
+        init {  
+            Log.e(  
+                "test",  
+                "===Proxy中 mRemote 是一个什么对象: " + remote.javaClass.canonicalName  
+            )  
+        }  
+  
+  
+        override fun asBinder(): IBinder {  
+            return remote  
+        }  
+        @Throws(RemoteException::class)  
+        override fun goDie() {  
+            var data = Parcel.obtain() // 跨进程传输数据对象  
+            var reply = Parcel.obtain() // 跨进程传输返回结果  
+                //....  
+        }  
+        @Throws(RemoteException::class)  
+        override fun goDieDie(parcel: String): String? {  
+            var data = Parcel.obtain() // 跨进程传输数据对象  
+            var reply = Parcel.obtain() // 跨进程传输返回结果  
+            try {  
+                data.writeInterfaceToken(Stub.DESCRIPTOR);  
+                data.writeString(parcel)  
+                // 调Stub的onTransact方法进行Stub.TRANSACTION_getString，远端返回  
+                Log.e("test", "mRemote transact 当前线程 :" +   Thread.currentThread().getName());  
+                remote.transact(Stub.TRANSACTION_goDie, data, reply, 0);  
+  
+                reply.readException();  
+                return reply.readString()  
+            }finally {  
+                data.recycle();  
+                reply.recycle();  
+            }  
+        }  
+  
+    }  
+  
+}
+
+```
+
+```kotlin
+
+class DieDieService: Service() {  
+    override fun onBind(intent: Intent?): IBinder? {  
+        return object :IDieDieService.Stub(){  
+            @Throws(RemoteException::class)  
+            override fun goDie() {  
+  
+            }  
+  
+            override fun goDieDie(parcel: String): String? {  
+                return parcel + "你大爷"  
+            }  
+  
+  
+            override fun asBinder(): IBinder {  
+                return this;  
+            }  
+        }  
+    }  
+}
+```
+
+从字面意思看，Stub是存根，Proxy是代理，而这个Stub是谁的存根呢？Proxy又是谁的代理呢？
+
+
+我理解的是 :  
+
+Stub是 服务端Binder实体的存根.
+
+Proxy则是Stub的代理. 
+
+#### Stub类
+服务实体，Binder的实现类，服务端一般会实例化一个Binder对象，在服务端onBind中绑定， 客户端asInterface获取到Stub。 这个类在编译aidl文件后自动生成，它继承自Binder，表示它是一个Binder本地对象； 它是一个抽象类，实现了IInterface接口，表明它的子类需要实现Server将要提供的具体能力（即aidl文件中声明的方 法）
+stub 类是抽象类，里面实现了服务端接收到binder信息后根据 TRANSACTION_XXX() 字符串匹配对应的处理方法并且调用对应的抽象方法（也就是我们在service中实现的方法），抽象方法在service中新建new stub的时候实现。
+
+#### Stub.Proxy类
+客户端调用在serviceConnection的bind回调的时候的Ibinder对象（也就是上面的Stub实体），asInterface在stub中实现了新建并返回了Proxy对象，所以我们调用的方法时候是会被该Proxy对象代理的。
+
+它实现了IInterface接口，说明它是 Binder通信过程的一部分；它实现了aidl中声明的方法，但实际上调用帮我们使用了parcel进行数据的传输和接收，调用remote.transact(xxxx)开始进程通信直到调用到服务端Stub中方法。
 
 
 # 52.断点续传
@@ -5345,16 +6950,22 @@ HTTP/1.1 206 Partial Content
 ```
 
 # 52.插件化
+紧密关联：
+[[#45.热修复]]
+[[#19.ARoute和组件化]]
+[[#换肤框架]]
 
-类加载原理
+
+![[v2-1712eb8d789f4aff59a805f4a641aa55_720w.webp]]
+App的部分功能模块在打包时并不以传统⽅式打包进apk⽂件中，⽽是以另⼀种形式⼆次封装进apk内部，或者放在⽹络上适时下载，在需要的时候动态对这些功能模块进⾏加载，称之为插件化。这些单独⼆次封装的功能模块apk，就称作插件，初始安装的apk称作宿主。插件化是组件化的更进⼀步推进。
+
+## 类加载原理
 
 
 
 说起热修复就不得不提类的加载机制，和常规的JVM类似，在Android中类的加载也是通过ClassLoader来完成，具体来说就是PathClassLoader 和 DexClassLoader 这两个Android专用的类加载器，这两个类的区别
 
-PathClassLoader：加载已经安装到Android系统中的apk文件（/data/app目录），是Android默认使用的类加载器。
-DexClassLoader：可以加载任意目录下的dex/jar/apk/zip文件，也就是我们一开始提到的补丁
-
+PathClassLoader 和 DexClassLoader **都能加载外部的 dex／apk**，只不过区别是 DexClassLoader 可以**指定 optimizedDirectory**，也就是 dex2oat 的产物 .odex 存放的位置，而 PathClassLoader 只能使用系统默认位置。但是这个 optimizedDirectory 在 Android 8.0 以后也被舍弃了，只能使用系统默认的位置了。
 
 
 这两个类都是继承自**BaseDexClassLoader**，我们可以看一下BaseDexClassLoader的构造函数。
@@ -5374,25 +6985,160 @@ DexClassLoader：可以加载任意目录下的dex/jar/apk/zip文件，也就是
 bootclassLoader：android sdk加载使用的classloader,一般是最父级
 [[类加载器]]
 
+//该图对于PathClassLoader和DexClassLoader的说明有误，请忽略
+![[8623410-5df3d39a60d8aaf3.webp]]
 
 （全程使用反射，因为很多类无法直接获取到或者直接操作）
 
-我们通过反射获取当前宿主的类加载器的dexpathlist，再反射获取dexElements[]
+我们通过反射获取当前宿主的类加载器的dexpathlist，**再反射获取dexElements[]->也就是多dex, 一个element都是对应一个dexfile信息**
 
 ![](微信图片_20230310231251.png)
 
-然后新创dexCLASSLoader加载我们的补丁dex/apk，获取到补丁的dexElement[]
+然后**新创DexClassLoader加载我们的补丁dex/apk，获取到补丁的dexElement[]**
 
 创建新的dexElement[]，把两个dexElenemts[]合并进去，设置到原先类加载器中，把原先的dexElement替换成新的
 
 ![](微信截图_20230310232926.png)
-
+```kotlin
+//代码整合一下
+fun loadPlugin(context:Context){  
+    val dexPathClass = Class.forName("dalvik.system.DexPathList")  
+    val dexElementField = dexPathClass.getDeclaredField("dexElements")  
+    dexElementField.isAccessible = true  
+  
+    //把系统的classLoader中的pathlist偷偷操作，  
+    val classLoader = Class.forName("dalvik.system.BaseDexClassLoader")  
+    val pathListField = classLoader.getDeclaredField("pathList")  
+    pathListField.isAccessible = true  
+    val realClassLoader = context.classLoader  
+    val pathList = pathListField.get(realClassLoader)  
+    val hostDexArray = dexElementField.get(pathList) as Array<Any>  
+  
+  
+    //  
+    val pluginClassLoader = DexClassLoader(apkPath, context.cacheDir.absolutePath, null, realClassLoader)  
+    val pluginPathList = pathListField.get(pluginClassLoader)  
+    val pluginDexArray = dexElementField.get(pathList) as Array<Any>  
+      
+    //接下来把 hostDexArray 和 pluginDexArray 合并就完事了  
+    //在设置到真实的ClassLoder里面即可  
+}
+```
 之后我们就可以直接用反射获取到插件中的类了
+
+
+## 常见问题
+### 问题⼀：未注册的组件（例如Activity）不能打开
+	下面介绍如何通过hook的方式启动插件中的Activity，需要解决以下两个问题：
+		- 插件中的Activity没有在AndroidManifest中注册，如何绕过检测。
+		- 如何构造Activity实例，同步生命周期
+
+- 解决⽅式⼀：代理Activity
+	##### 代理模式（DL框架）
+
+ProxyActivity + 插件中没注册的Activity = 标准的Activity
+
+![](https://upload-images.jianshu.io/upload_images/8623410-3fe0083075551219.png?imageMogr2/auto-orient/strip|imageView2/2/w/667/format/webp)
+### 解决⽅式⼆：欺骗系统
+
+其实有很多hook点，Instrument或者AMS proxy的hook
+这里说一下Instrument的hook
+下面介绍如何通过hook的方式启动插件中的Activity，需要解决以下两个问题：
+
+- 插件中的Activity没有在AndroidManifest中注册，如何绕过检测。
+- 如何构造Activity实例，同步生命周期
+
+解决方法有很多种，以VirtualAPK为例，核心思路如下：
+
+1. 先在Manifest中预埋StubActivity，启动时hook上图第1步，将Intent替换成StubActivity。
+2. hook第10步，通过插件的ClassLoader反射创建插件Activity
+3. 之后Activity的所有生命周期回调都会通知给插件Activity
+
+**替换系统Instrumentation**
+
+VirtualAPK在初始化时会调用hookInstrumentationAndHandler，该方法hook了系统的Instrumentaiton类，由上文可知该类和Activity的启动息息相关。
+
+![](https://pic2.zhimg.com/80/v2-92017c4e0195812284b412c61d266aa9_720w.webp)
+
+该段代码将主线程中的Instrumentation对象替换成了自定义的VAInstrumentation类。在启动和创建插件activity时，该类都会偷偷做一些手脚。
+
+**hook activity启动过程**
+
+VAInstrumentation类重写了execStartActivity方法，相关代码如下：
+
+![](https://pic4.zhimg.com/80/v2-cabeb9d3ea1da37e40b4156a6420d25f_720w.webp)
+
+先通过隐式启动activtiy
+```java
+intent.setComponent( new Componen("插件的包名", " 目标activity") )
+```
+
+execStartActivity中会先去处理隐式intent，如果该隐式intent匹配到了插件中的Activity，将其转换成显式。之后通过markIntentIfNeeded将待启动的的插件Activity替换成了预先在AndroidManifest中占坑的StubActivity，并将插件Activity的信息保存到该intent中。其中有个dispatchStubActivity函数，会根据Activity的launchMode选择具体启动哪个StubActivity。VirtualAPK为了支持Activity的launchMode在主工程的AndroidManifest中对于每种启动模式的Activity都预埋了多个坑位。
+
+**hook Activity的创建过程**
+
+
+
+上一步欺骗了系统，让系统以为自己启动的是一个正常的Activity。当来到图 3.2的第10步时，再将插件的Activity换回来。此时调用的是VAInstrumentation类的newActivity方法。
+
+![](https://pic4.zhimg.com/80/v2-522e144df4c3b17a25fbe19db67e9897_720w.webp)
+
+由于AndroidManifest中预埋的StubActivity并没有具体的实现类，所以此时会发生ClassNotFoundException。之后在处理异常时取出插件Activity的信息，通过插件的ClassLoader反射构造插件的Activity。
+
+**其他操作**
+
+插件Activity构造出来后，为了能够保证其正常运行还要做些额外的工作。
+
+![](https://pic2.zhimg.com/80/v2-7c1fd17dc4dde4f4c3ec8a40e25ecc8d_720w.webp)
+
+这段代码主要是将Activity中的Resource，Context等对象替换成了插件的相应对象，保证插件Activity在调用涉及到Context的方法时能够正确运行。
+
+经过上述步骤后，便实现了插件Activity的启动，并且该插件Activity中并不需要什么额外的处理，和常规的Activity一样。
+那问题来了，之后的onResume，onStop等生命周期怎么办呢？
+答案是所有和Activity相关的生命周期函数，系统都会调用插件中的Activity。**原因在于AMS在处理Activity时，通过一个token表示具体Activity对象，而这个token正是和启动Activity时创建的对象对应的，而这个Activity被我们替换成了插件中的Activity，所以之后AMS的所有调用都会传给插件中的Activity**。
+
+#### 总结
+Instrument或者AMS proxy（也就是hoosk app的IActivtiyManger）其实都是通过在即将于ams通信的时候把proxy对象传给远端AMS去启动，用注册过的proxy activity欺骗插件 activtiy 没有注册这一件事，区别的在于hook点不同。
+
+AMS hook是通过在发起binder之前修改intent信息为proxy的activtiy，在收到ams回调之后的activityThread中handleLanchActivtiy时候的 handler的msg携带的ActivityClientRecord进行了信息修改成代理的acitivtiy信息。（替换时机比Instrument.newActivtiy要早）
+
+  ### 解决⽅式三：重写gradle打包过程，合并AndroiManifest.xml
+强制写入但是缺点是启动的activtiy也已经是固定了，灵活性不够高
+
+### 问题⼆：资源⽂件⽆法加载
+相关：[[#换肤框架]]
+解决⽅式：⾃定义AssetManager和Resources对象
+
+```java
+   private AssetManager createAssetManager (String dexPath) {
+        try {
+            AssetManager assetManager = AssetManager.class.newInstance();
+            //就是这个addAssetPath
+            Method addAssetPath = assetManager.getClass().getMethod("addAssetPath", String.class);
+            addAssetPath.invoke(assetManager, dexPath);
+            return assetManager;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+```
+## 插件化有什么用？
+
+- 早期：解决dex 65535问题。⾕歌后来也出了multidex⼯具来专⻔解决
+- 懒加载来减少软件启动速度：有可能，实质上未必会快
+- 减⼩安装包⼤⼩：可以
+- 项⽬结构拆分，依赖完全隔离，⽅便多团队开发和测试，解决了组件化耦合度太⾼的问题：这个使⽤模块化就够了，况且模块化解耦不够的话，插件化也解决不了这个问题
+- 动态部署：可以
+- 热修复：可以
+
+提醒：无论是热修复还是插件化，一定要注意的是不同android版本下的环境大概率会有不同。
 
 # 53.webview优化
 ## 前言
 跨平台和动态性要求，现在很多app都会嵌入h5页面，称为混合开发（HyBrid技术），在需要与Native交互时（调用原生接口）再通过jsBrigde与本地交互。
 拓展说明：[[Android跨平台--Flutter混合开发]]
+[[Android跨平台--Flutter混合开发#2. Hybird技术：]]
 
 
 ## 53.1. webview优化
@@ -5422,6 +7168,80 @@ h5加载模板文件的时候，用native加载正文（主要内容）后通过
 6.复用webview
 在第一点中创建缓存池，每次使用后清空正文数据存入缓存池。这样不用反复创建webview和预热模板。
 
+平时使用WebView的时候我们都是动态新建并添加到ViewGroup中，新建时就传入了Context，那如果使用缓存池，Context该怎么传呢？
+
+**一种方案是直接用ApplicationContext新建WebView；另一种方案是使用MutableContextWrapper，如果在某个Activity中被使用了就改为该Activity的Context，当 Activity 退出时为了防止内存泄漏再将 WebView 的 Context 替换回ApplicationContext。**一个简易版的WebView缓存池实现如下。
+
+注意在APP启动时应该就要调用WebViewPool的初始化方法新建一个WebView，不然启动第一个包含WebView的页面时耗时也会很久。
+
+  ```csharp
+public class WebViewPool {
+
+    private List<DetailWebView> mIdleWebViewList;
+    private List<DetailWebView> mUsingWebViewList;
+
+    private static class Holder {
+        private static WebViewPool sInstance = new WebViewPool();
+    }
+
+    public static WebViewPool getInstance() {
+        return Holder.sInstance;
+    }
+
+    private WebViewPool() {
+    }
+
+    /**
+     * 在 APP 启动时调用, 直接新建一个备用的WebView
+     */
+    public void init() {
+        mIdleWebViewList = new CopyOnWriteArrayList<>();
+        mUsingWebViewList = new ArrayList<>();
+        MutableContextWrapper contextWrapper = new MutableContextWrapper(App.getContext());
+        DetailWebView detailWebView = new DetailWebView(contextWrapper);
+        mIdleWebViewList.add(detailWebView);
+    }
+
+    public DetailWebView acquireWebView(Context context) {
+        if (mIdleWebViewList != null && mIdleWebViewList.size() > 0) {
+            DetailWebView webView = mIdleWebViewList.remove(0);
+            MutableContextWrapper contextWrapper = (MutableContextWrapper) webView.getContext();
+            contextWrapper.setBaseContext(context);
+            mUsingWebViewList.add(webView);
+            return webView;
+        } else {
+            MutableContextWrapper contextWrapper = new MutableContextWrapper(context);
+            DetailWebView webView = new DetailWebView(contextWrapper);
+            mUsingWebViewList.add(webView);
+            return webView;
+        }
+    }
+
+    public void recycleWebView(DetailWebView webView) {
+        if (webView == null) {
+            return;
+        }
+        ViewGroup viewParent = (ViewGroup) webView.getParent();
+        if (viewParent != null) {
+            viewParent.removeView(webView);
+        }
+        webView.loadUrl("about:blank");
+        if (mUsingWebViewList != null && mUsingWebViewList.contains(webView)) {
+            mUsingWebViewList.remove(webView);
+            MutableContextWrapper contextWrapper = (MutableContextWrapper) webView.getContext();
+            contextWrapper.setBaseContext(App.getContext());
+            webView.setWebViewClient(null);
+            webView.setWebChromeClient(null);
+            mIdleWebViewList.add(webView);
+        } else {
+            webView.clearHistory();
+            webView.destroy();
+        }
+    }
+}
+```
+
+
 7.Http缓存策略
 1. http缓存cache-control
 
@@ -5435,7 +7255,9 @@ h5加载模板文件的时候，用native加载正文（主要内容）后通过
 
 # 54. 字节码插桩
 
-所谓字节码插桩，*就是在class文件里动态注入新的字节码，增强原有字节码的功能。当然也可以修复和删除原有字节码*。它可以不用写java代码来实现功能的新增。
+[[#45.热修复]]
+
+所谓字节码插桩，*就是在class文件里动态注入新的字节码，增强原有字节码的功能。当然也可以修复和删除原有字节码*。它可以不用写java代码来实现功能的新增。（埋点、方法执行时间--卡顿检测、内存泄漏、热修复）
 一般是
 **通过Gradle的Transform API来过滤出class，**
 然后通过ASM框架或者Javaassit框架注入字节码。
@@ -5446,6 +7268,18 @@ Transform是Gradle的一个类似拦截器的功能，可以获取上一个Trans
 熟悉字节码插桩技术需要先了解常见的字节码指令以及Jvm执行字节码的过程，字节码指令其实是将中缀表达式转化成了后缀表达式，也叫逆波兰表达式，在这里就不讲解了，有兴趣查阅专业资料。
 
 动态注入字节码，一般不需要我们手动去写，而是先用Java写好一个模板类，然后查看它的字节码，将相应的字节码复制到Transform中。当然先要对字节码语法有基本的了解。
+
+![[1638147-4f4b6463869dac87.webp]]
+## ASM插装
+按照class文件的格式解析、修改、生成的新的class的一个框架。使用FileInputStream读取待插装class，使用ASM 的classReader，ClassWirter，classVisitor等等操作字节码
+。
+
+#javaassist
+类似ASM
+
+## Gradle + Transformer
+使用Transformer提供的接口在打包
+
 
 # 55. 界面卡顿优化
 ## 卡顿是什么导致的？
@@ -5484,7 +7318,8 @@ ANR-WatchDog机制原理不复杂，**它内部启动了一个子线程，定时
 
 每次Message处理(也就是dispatchMessage(msg))都会在处理前，和处理后通过Looper.mLogging打印日志。
 ```java
-//Looper取消息的接口`Looper.getMainLooper().setMessageLogging(CustomPrinter())`
+//Looper取消息的接口
+Looper.getMainLooper().setMessageLogging(CustomPrinter())
 
 public void println(String reason) {
     if (reason.charAt(0) == '>') {
@@ -5508,7 +7343,7 @@ public void println(String reason) {
 ### JankStats
 大部分手机的屏幕都是60Hz的刷新率，系统为了配合屏幕的刷新频率，每过16.6ms就会发出Vsync信号来通知应用进行绘制。如果每个Vsync周期应用都能完成渲染逻辑，那么应用的FPS就是60，给用户的感觉就是非常流畅。
 
-在应用层，实现上述机制的关键类就是`Choreographer`。每隔16.6ms，Vsync 信号唤醒 Choreographer来做应用的绘制操作。
+在应用层，实现上述机制的关键类就是`Choreographer`。每隔16.6ms，Vsync 信号唤醒 Choreographer来做应用的绘制操作。[[#Choreographer]]
 在应用层就是通过Choreographer来接受VSync信号并执行每一帧的渲染逻辑。  
 每当Vsync到来时，会往主线程[消息队列](https://so.csdn.net/so/search?q=%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97&spm=1001.2101.3001.7020)里添加一个Message，最终其doFrame函数将被调用：
 
@@ -5529,7 +7364,10 @@ public void run() {
 
 
 1.内存抖动
+可以在profile中看stack内存的变化
+
 2.嵌套布局
+嵌套布局过深会导致我们测量、绘制的时候viewtree遍历（自上向下或者自下向上）事件或者测量时间过长（因为我们测量的时候父布局可能是受子布局影响的），
 
 
 GLsurface
@@ -5621,6 +7459,8 @@ GLsurface
             mHandler.mWeakReference.clear();
         }
 
+4. destroy的时候mHandler.removeAllCallbackAndMessage()
+
  #### 2. Thread造成内存泄露
 
 匿名内部类构建的Thread类，默认持有外部类的实例
@@ -5635,7 +7475,41 @@ GLsurface
  
  ```
 #### 3.Native导致的泄露
+JNI引用的对象。
+#### 4.方法区中静态属性引用的对象
+特别是 activity或者对应的context，view。
+#### 5.synchronized锁持有的对象
 
+#### 6.资源没有正确释放
+
+比如数据库链接，Bitmap，stream对象，音频资源等等。
+webview。
+
+Bitmap可以采用第三方框架来管理。
+
+weiview记得destroy的时候，stoploading，调用onPause，clearCache，removeallviews, destroy等等。
+
+## 监视工具
+1. as 的Profile
+2.  DDMS androidSDK中的可以监视进程 
+3. Matrix 腾讯的开源项目。
+	1.  Matrix for Android
+	Matrix-android 当前监控范围包括：应用安装包大小，帧率变化，启动耗时，卡顿，慢方法，SQLite 操作优化，文件读写，内存泄漏等等。
+	- APK Checker: 针对 APK 安装包的分析检测工具，根据一系列设定好的规则，检测 APK 是否存在特定的问题，并输出较为详细的检测结果报告，用于分析排查问题以及版本追踪
+    
+	- Resource Canary: 基于 WeakReference 的特性和 [Square Haha](https://github.com/square/haha) 库开发的 Activity 泄漏和 Bitmap 重复创建检测工具
+    
+	- Trace Canary: 监控ANR、界面流畅性、启动耗时、页面切换耗时、慢函数及卡顿等问题
+    
+	- SQLite Lint: 按官方最佳实践自动化检测 SQLite 语句的使用质量
+    
+	- IO Canary: 检测文件 IO 问题，包括：文件 IO 监控和 Closeable Leak 监控
+    
+	- Battery Canary: 监控 App 活跃线程（待机状态 & 前台 Loop 监控）、ASM 调用 (WakeLock/Alarm/Gps/Wifi/Bluetooth 等传感器)、 后台流量 (Wifi/移动网络)等 Battery Historian 统计 App 耗电的数据
+    
+	- MemGuard
+    
+    检测堆内存访问越界、使用释放后的内存、重复释放等问题
 
 # 57. NDK开发
 
@@ -5692,6 +7566,44 @@ JNI函数名格式（包名里面的”.”需要改为”_”）： Java_ + 包
 ### 动态注册
 
 动态注册通过手动注册实现虚拟机与jni的连接。优点是节约了搜索所需的开销，缺点是需要额外进行函数编写，增加了人工工作量。
+
+动态注册的步骤如下：
+
+- 通过 vm（ Java 虚拟机）参数获取 JNIEnv 变量
+- 通过 FindClass 方法找到对应的 Java 类
+- 通过 RegisterNatives 方法，传入 JNINativeMethod 数组，注册 native 函数
+
+对于 JNINativeMethod 结构而言，签名是其非常重要的一项元素，它用于区分 Java 中 native 方法的各种重载形式，下面将介绍方法的签名。
+
+# 4 方法签名
+
+方法签名的组成规则为：
+
+**(参数类型标识1参数类型标识2…参数类型标识n)返回值类型标识**
+
+类型标识对应关系如下：
+
+|类型标识|Java数据类型|
+|---|---|
+|Z|boolean|
+|B|byte|
+|C|char|
+|S|short|
+|I|int|
+|J|long|
+|F|float|
+|D|double|
+|L包名/类名;|各种引用类型|
+|V|void|
+
+另外，当 Java 类型为数组时，在标识前会有“[”符号，例如：String[] 类型标识为 [Ljava/lang/String;（不要漏掉英文分号），如果有内部类则用 $ 来分隔，如：Landroid/os/FileUtils$FileStatus;
+
+可以根据上面的规则手动书写方法签名，当然还有一种自动获取的方法。  
+如果是 ndk-build 构建的项目在\build\intermediates\classes\debug 目录下执行，如果是 CMake 构建的项目在\build\intermediates\javac\classes 目录下执行：
+
+```powershell
+javap -s 全类名
+```
 
 创建一个java类，里面声明两个jni函数：
 
@@ -5897,7 +7809,7 @@ JNIEnv 作用：
     访问Java成员变量和成员方法；
     调用Java构造方法创建Java对象等。
 
-### .JNI引用
+### JNI引用
 #### I . 全局引用
 
 
@@ -5931,11 +7843,53 @@ JNIEnv 作用：
 - Surface  
     Handle onto a raw buffer that is being managed by the screen compositor。即Surface是保存原始缓存区的句柄，也就是显示的像素数据
 - SurfaceView  
-    SurfaceView是视图(View)的继承类，这个视图里内嵌了一个专门用于绘制的Surface。你可以控制这个Surface的格式和尺寸。Surfaceview控制这个Surface的绘制位置。
+    SurfaceView是视图(View)的继承类，这个视图里内嵌了一个专门用于绘制的Surface。你可以控制这个Surface的格式和尺寸。Surfaceview控制这个Surface的绘制位置。我们绘制view不用依赖于view的刷新机制，可以直接执行渲染。
 
 为什么要设计surfaceView？
-	答：当渲染的缓冲数据来自外部的其它系统服务或API时——比如系统媒体解码器的音视频数据，或者 Camera API 的相机数据等，这时 UI 渲染的效率要求会变得非常高。
-	开发者有了新的诉求：能否有这样一种特殊的视图，它拥有独立的 Surface ，这样就可以脱离现有 Activity 宿主的限制，在一个独立的线程中进行绘制。
-	由于该视图不会占用主线程资源，一方面可以实现复杂而高效的 UI 渲染，另一方面可以及时响应用户其它输入事件。
+答：**当渲染的缓冲数据来自外部的其它系统服务或API时——比如系统媒体解码器的音视频数据，或者 Camera API 的相机数据等，这时 UI 渲染的效率要求会变得非常高。**
+开发者有了新的诉求：能否有这样一种特殊的视图，它拥有独立的 Surface ，这样就可以脱离现有 Activity 宿主的限制，在一个独立的线程中进行绘制。
+**由于该视图不会占用主线程资源，一方面可以实现复杂而高效的 UI 渲染，另一方面可以及时响应用户其它输入事件。**
 
 ## GLSurfaceView和OpenGL
+
+
+# SparseArray和ArrayMap
+## SparseArray
+
+**Android内部特有的api**
+
+SparseArray中Key为int类型（避免了装箱和拆箱），Value是Object类型，Key和Value分别存放在一个数组内，**Key数组int值是按顺序排列的，查找的时候采用的是二分查找，效率很高。而Value数组的位置和Key数组中的位置是一样的。**
+
+add的时候会进行位移，remove的时候不一定会进行位移，把某个值标记为delete，如果下次有符合的值直接放到该位置，就没有位移了。但是也有缺点，Key只能是int值。最后Android中还扩展了SparseLongArray。
+
+SparseArray总结：
+
+- 其内部主要通过 2 个数组来存储 key 和 value，分别是 int[] 和 Object[]。这也限定了其 key 只能为 int 类型，且 key 不能重复，否则会发生覆盖。
+- 一切操作都是基于二分查找算法，将 key 以升序的方法 “紧凑” 的排列在一起，从而提高内存的利用率以及访问的效率。相比较 HashMap 而言，这是典型的时间换空间的策略。
+- 删除操作并不是真的删除，而只是标记为 DELETE，以便下次能够直接复用。
+## ArrayMap
+
+
+ArrayMap的Key和Value同HashMap一样都可以存放多种类型，ArrayMap对象的数据存储格式如下：
+
+1.mHashes是一个记录所有key的hashcode值组成的数组，是从小到大的排序方式；采用二分查找法，从mHashes数组中查找值等于hash的key
+2.mArray是一个记录着key-value键值对所组成的数组，是mHashes大小的2倍；
+
+在Android Performance Pattern中，官方给出的使用场景为：
+
+	1. item数量小于1000，尤其是插入数据和删除数据不频繁的情况。
+	2. Map中包含子Map对象
+### ArrayMap和HashMap的区别？
+
+ArrayMap的存在是为了解决HashMap占用内存大的问题，它内部使用了一个int数组用来存储元素的hashcode，使用了一个Object数组用来存储元素，两者根据索引对应形成key-value结构，这样就不用像HashMap那样需要额外的创建Entry对象来存储，减少了内存占用。但是在数据量比较大时，ArrayMap的性能就会远低于HashMap，因为 ArrayMap基于二分查找算法来查找元素的，并且数组的插入操作如果不是末尾的话需要挪动数组元素，效率较低。
+而HashMap内部基于数组+单向链表+红黑树实现，也是key-value结构， 正如刚才提到的，HashMap每put一个元素都需要创建一个Entry来存放元素，导致它的内存占用会比较大，但是在大数据量的时候，因为HashMap中当出现冲突时，冲突的数据量大于8，就会从单向链表转换成红黑树，而红黑树的插入、删除、查找的时间复杂度为O(logn),相对于ArrayMap的数组而言在插入和删除操作上要快不少，所以数据量上百的情况下，使用HashMap会有更高的效率。
+
+### ArrayMap和SparseArray
+主要是：SparseArray有延迟删除的机制，可以有效的提高效率；ArrayMap即时删除，且有减容机制，可以有效的节省空间。
+
+### 如何解决冲突问题？
+在ArrayMap中，假设存在冲突的话，并不会像HashMap那样使用单向链表或红黑树来保留这些冲突的元素，而是全部key、value都存储到一个数组当中，然后查找的话通过二分查找进行，这也就是当数据量大时不宜用ArrayMap的原因了。
+
+
+
+[相关文档-锁机制](锁.md5)

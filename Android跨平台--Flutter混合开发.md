@@ -23,11 +23,137 @@
 
 #### 2. Hybird技术：
  将H5+原生混合开发的方式称之为**混合开发或者** 或者**HTMLybrid App**，如果大多数功能都是web实现那么我们称其为webapp.
+ 
+首先来说Native端调用Web端，这个比较简单，JavaScript作为解释性语言，最大的一个特性就是可以随时随地地通过解释器执行一段JS代码，所以可以将拼接的JavaScript代码字符串，传入JS解析器执行就可以，JS解析器在这里就是webView。
+
  我们把依赖于 WebView 的用于在 JavaScript 与原生之间通信并实现了某种消息传输协议的工具称之为 **WebView JavaScript Bridge** , 简称 **JsBridge**，它也是混合开发框架的核心。
+ 
  我们可以通过第三方 **JsBridge**框架进行对原生的调用。
 [WebViewJavascriptBridge](https://links.jianshu.com/go?to=https%3A%2F%2Fgithub.com%2Fmarcuswestin%2FWebViewJavascriptBridge)
 
 交互体验和性能明显没有原生的好，图片多的时候也不行。
+
+##### Android调用js
+Android 4.4之前只能用 **loadUrl** 来实现，并且无法执行回调：
+
+```java
+String jsCode = String.format("window.showWebDialog('%s')", text);
+webView.loadUrl("javascript: " + jsCode);
+```
+
+Android 4.4之后提供了 **evaluateJavascript** 来执行JS代码，**并且可以获取返回值执行回调：**
+
+```java
+String jsCode = String.format("window.showWebDialog('%s')", text);
+webView.evaluateJavascript(jsCode, new ValueCallback<String>() {
+  @Override
+  public void onReceiveValue(String value) {
+  
+  }
+});
+```
+
+##### Web->Native
+
+Web调用Native端主要有两种方式
+
+##### 拦截Webview请求的URL Schema
+
+URL Schema是类URL的一种请求格式，格式如下：
+
+`<protocol>://<host>/<path>?<qeury>#fragment`
+
+我们可以自定义JSBridge通信的URL Schema，比如：`jsbridge://showToast?text=hello`
+
+Native加载WebView之后，Web发送的所有请求都会经过WebView组件，所以Native可以重写WebView里的方法，从来拦截Web发起的请求，我们对请求的格式进行判断：
+
+- 如果符合我们自定义的URL Schema，对URL进行解析，拿到相关操作、操作，进而调用原生Native的方法
+- 如果不符合我们自定义的URL Schema，我们直接转发，请求真正的服务
+#### 注入Api（注入对象）
+上面已经说到了Native、Web间双向通信的两种方法，但站在一端而言还是一个单向通信的过程 ，比如站在Web的角度：Web调用Native的方法，Native直接相关操作但无法将结果返回给Web，但实际使用中会经常需要将操作的结果返回，也就是JS回调。**考虑SPI设计，通过命令调用相应的方法。**
+
+所以在对端操作并返回结果，有输入有输出才是完整的调用，那如何实现呢？
+
+其实基于之前的单向通信就可以实现，我们在一端调用的时候在参数中加一个**callbackId**标记对应的回调，对端接收到调用请求后，进行实际操作，如果带有callbackId，对端再进行一次调用，将结果、callbackId回传回来，这端根据callbackId匹配相应的回调，将结果传入执行就可以了。
+
+说白了就是webView.addJavascriptInterface(new 注入对象CLASS, "**对应注入对象***"); 让js通过命令----命令模式调用注入的对象嗲用native方法，JSevaluateJavascript回调到JS。
+```html
+// Web端代码：
+<body>
+  <div>
+    <button id="showBtn">获取Native输入，以Web弹窗展现</button>
+  </div>
+</body>
+<script>
+  let id = 1;
+  // 根据id保存callback
+  const callbackMap = {};
+  // 使用JSSDK封装调用与Native通信的事件，避免过多的污染全局环境
+  window.JSSDK = {
+    // 获取Native端输入框value，带有回调
+    getNativeEditTextValue(callback) {
+      const callbackId = id++;
+      callbackMap[callbackId] = callback;
+      
+      //...............核心
+      // 调用JSB方法，并将callbackId传入
+      window.NativeBridge.getNativeEditTextValue(callbackId);
+     //..........
+     
+    },
+    // 接收Native端传来的callbackId
+    receiveMessage(callbackId, value) {
+      if (callbackMap[callbackId]) {
+        // 根据ID匹配callback，并执行
+        callbackMap[callbackId](value);
+      }
+    }
+  };
+
+    const showBtn = document.querySelector('#showBtn');
+  // 绑定按钮事件
+  showBtn.addEventListener('click', e => {
+    // 通过JSSDK调用，将回调函数传入
+    window.JSSDK.getNativeEditTextValue(value => window.alert('Natvie输入值：' + value));
+  });
+</script>
+```
+
+```java
+// Android端代码,注入对象，让js通过window.NativeBridge.去调用
+webView.addJavascriptInterface(new NativeBridge(this), "NativeBridge");
+
+class NativeBridge {
+  private Context ctx;
+  NativeBridge(Context ctx) {
+    this.ctx = ctx;
+  }
+
+  // 获取Native端输入值
+  @JavascriptInterface
+  public void getNativeEditTextValue(int callbackId) {
+    MainActivity mainActivity = (MainActivity)ctx;
+    // 获取Native端输入框的value
+    String value = mainActivity.editText.getText().toString();
+    // 需要注入在Web执行的JS代码
+    String jsCode = String.format("window.JSSDK.receiveMessage(%s, '%s')", callbackId, value);
+    // 在UI线程中执行
+    mainActivity.runOnUiThread(new Runnable() {
+      @Override
+      public void run() {
+        mainActivity.webView.evaluateJavascript(jsCode, null);
+      }
+    });
+  }
+}
+```
+#### 开源的JSBridge
+
+可以看到，实现一个完整的JSBridge还是挺麻烦的，还需要考虑低端机型的兼容问题、同步异步调用问题，好在已经有开源的JSBridge供我们直接使用了：
+
+- DSBridge，主要通过注入API的形式，[DSBridge for Android](https://link.zhihu.com/?target=https%3A//github.com/wendux/DSBridge-Android)、[DSBridge for IOS](https://link.zhihu.com/?target=https%3A//github.com/wendux/DSBridge-IOS)
+- JsBridge，主要通过拦截URL Schema，[JsBridge](https://link.zhihu.com/?target=https%3A//github.com/lzyzsd/JsBridge)
+
 
 #### 3.  React Native
 
