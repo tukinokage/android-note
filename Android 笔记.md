@@ -890,11 +890,45 @@ Contextmpl
 
 热启动因为会从已有的进程中来启动，所以热启动就不会走Application这步了，而是直接走MainActivity（包括一系列的测量、布局、绘制），所以热启动的过程只需要**创建和初始化一个MainActivity就行了**，而不必创建和初始化Application，因为一个应用从新进程的创建到进程的销毁，Application只会初始化一次。 
 
+**冷启动**
+系统不存在App进程（APP首次启动或APP被完全杀死）时启动APP，此时，APP的启动将经历两个阶段：
+
+第一阶段：
+
+    加载并启动app;
+    app启动后，第一时间为app显示一个空白的window；
+    创建app进程
+
+第二阶段：
+
+    系统一旦创建了app进程，app进程就要负责做以下的任务：
+
+创建app对象
+
+    启动主进程ActivityThread；
+    创建MainActivity；
+    渲染视图；
+    执行onLayout；
+    执行onDraw
+    完成第一次绘制后，把mainActivity替换已经展示的BackgroundWindow，即空白window。
+
+**热启动
+
+    当我们按了Home键或其它情况app被切换到后台，再次启动app的过程。
+    热启动时，系统将activity带回前台。如果应用程序的所有activity存在内存中，则应用程序可以避免重复对象初始化、渲染、绘制操作
+    如果由于内存不足导致对象被回收，则需要在热启动时重建对象，此时与冷启动时将界面显示到手机屏幕上一样。
+
+**温启动**
+
+温启动包含了冷启动的一些操作，==由于app进程依然在==，温启动只执行冷启动的第二阶段，这代表着它比热启动有更多的开销。
+
+温启动有很多场景，例如：
+
+    用户按连续按返回退出了app，然后重新启动app；
+    由于系统收回了app的内存，然后重新启动app。
 
 
-## activity启动模式
-
-启动模式总共有四种：
+## 启动模式总共有四种：
 
 - standard : 标准模式，每次启动都会创建一个activity对象。无论堆栈中是否存在相应的activity.每次创建过后的[生命周期](https://so.csdn.net/so/search?q=%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F&spm=1001.2101.3001.7020) 会从oncreate 开始重新执行
 - singTop ：栈顶复用模式，启动activity时，如果activity实例位于栈顶，那么就复用该activity对象。如果存在于栈顶的话，这时候就会直接复用栈顶的activity.
@@ -1846,21 +1880,36 @@ try {
     ......
 ```
 - 继续调用 wm.updateViewLayout( )
+
 -> 调用到viewrootImpl.`scheduleTraversals` 方法，`scheduleTraversals` 方法内部通过一个Choreographer 对象的 postCallback 执行一个 Runnable ，在这个 Runnable 中，调用 `doTraversal` 方法
+```java
+	void scheduleTraversals() {  
+	    if (!mTraversalScheduled) {  
+	        mTraversalScheduled = true;  
+	        mTraversalBarrier = mHandler.getLooper().getQueue().postSyncBarrier();  
+	        mChoreographer.postCallback(  
+	                Choreographer.CALLBACK_TRAVERSAL, mTraversalRunnable, null);  
+	        notifyRendererOfFramePending();  
+	        pokeDrawLockIfNeeded();  
+	    }  
+	}
+```
 
 -》==viewrootImpl. **scheduleTravsals**（绘画的起点）==-> ==调用消息屏障== ->`mChoreographer`注册监听回调 [[#Choreographer]]
 -》接收到vsync 回调（viewrootImpl）**doTraversal 移除消息屏障
+//为什么需要消息屏障？请看消息分发机制
 ```java
 		void doTraversal() {  
 	    if (mTraversalScheduled) {  
 	        mTraversalScheduled = false;  
 	        mHandler.getLooper().getQueue().removeSyncBarrier(mTraversalBarrier);
+	        performTraversals();
 	        .....
 	        }
 ```
 -》viewrootImpl.perfromTraversal（）
 -》==performMeasure，performDraw，performlAYOUT==，调用==decordview的各个绘制过程*==*
-==并且該過程中執行了view.post的各種任務（measure）和 TreeObserver 回調 ==
+==并且該過程中執行了view.post的各種任務（post是在measure之后）和 TreeObserver 回調（三大perform之前）、dispatchAttachWidnow( 三大perform之前）==
 ![](繪製流程.webp)
 
 
@@ -1880,7 +1929,7 @@ try {
 - getBottom()；获取View到其父布局顶边的距离。
 - getRight()；获取View到其父布局左边的距离。
 
- 空件大小 = （h = getBottom - getTop）（w = getRight - getLeft）
+```控件大小 = （h = getBottom - getTop）（w = getRight - getLeft）```
 
 
 
@@ -1893,7 +1942,35 @@ try {
 **layout()： 确定view的位置，进行页面布局。父view根据上一步measure子view所得的布局大小和布局参数将子view放在合适的位置上 **
 
 **draw：**绘制视图。**viewroot创建一个canvas对象，绘制背景，保存图层，绘制view和绘制子view，绘制滚动条等**，然后回调onDraw
-
+```java
+//viewrootImpl.java
+private boolean drawSoftware(Surface surface, AttachInfo attachInfo, int xoff, int yoff,  
+        boolean scalingRequired, Rect dirty, Rect surfaceInsets) {  
+  
+    // Draw with software renderer.  
+    final Canvas canvas;  
+  
+    // We already have the offset of surfaceInsets in xoff, yoff and dirty region,  
+    // therefore we need to add it back when moving the dirty region.    int dirtyXOffset = xoff;  
+    int dirtyYOffset = yoff;  
+    if (surfaceInsets != null) {  
+        dirtyXOffset += surfaceInsets.left;  
+        dirtyYOffset += surfaceInsets.top;  
+    }  
+  
+    try {  
+        dirty.offset(-dirtyXOffset, -dirtyYOffset);  
+        final int left = dirty.left;  
+        final int top = dirty.top;  
+        final int right = dirty.right;  
+        final int bottom = dirty.bottom;  
+        //看到没有
+        canvas = mSurface.lockCanvas(dirty);
+        .....
+         //看到没
+        mView.draw(canvas);
+        .....
+```
 
 
 #### **invalidate及其流程**
@@ -1964,7 +2041,7 @@ Webvie建议使用硬件加速，不然又加载问题，有了也可能会出�
 
 **仅用于重绘**
 一般来说我们setLayoutParams，addview等操作都会触发重绘。
-然而，以下情况下不会触发重绘：
+然而，以下情况下不会触发重绘，需要手动调用invalidate：
 
 1. 通过绘图类直接修改不会触发重绘：例如，使用Canvas或者Paint等绘图类直接在View上进行绘制操作，不会触发该View的重绘。这是因为这些绘图类并不影响View的布局或者大小。
 2. 不影响布局大小的变化不会触发重绘：例如，改变一个View的margin值或者padding值等属性，不会触发该View及其子View的重绘。这是因为这些属性的变化只影响了View的位置，并没有改变其布局或者大小。
@@ -2030,7 +2107,7 @@ requestLayout会直接递归调用父窗口的requestLayout，
         final boolean specChanged = widthMeasureSpec != mOldWidthMeasureSpec
                 || heightMeasureSpec != mOldHeightMeasureSpec;
         
-        //判断此次测量模式是否精确，不是精确的可能需要重新测量
+        //判断此次测量模式是否是精确模式，不是精确的可能需要重新测量
         final boolean isSpecExactly = MeasureSpec.getMode(widthMeasureSpec) == MeasureSpec.EXACTLY
                 && MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY;
     
@@ -3825,7 +3902,7 @@ parcel.h中部分代码， 其中data存了共享的对象首地址，position�
 # 15.图片裁剪和大图显示
 
 ## 大图展示
-
+相关内容：[[#43.Bitmap与Bitmap优化]]
 1.我们可以通过option先配置图片解码大小，通过inSampleSize加载缩略图图
 或者是  **通过option配置inJustDecodeBounds只加载图片的信息，再根据图片情况进行具体配置
 
@@ -4206,18 +4283,18 @@ Glide 缓存机制主要分为2种：
 (6) 回调ImageViewTarget最终设置并显示图片到目标ImageView
 
 ### 各種復用池
-BitmapPool，ByteArrayPool存儲解碼時的緩衝buff復用。
+==BitmapPool==，==ByteArrayPool==存儲解碼時的緩衝buff復用。
 
 问题1： Glide加载一个100x100的图片，是否会压缩后再加载？放到一个300x300的view上会怎样？
 
-当我们调整ImageView大小事，因爲緩存的key是基於圖片參數的，也就是Glide会为每个不同尺寸的ImageView缓存一张图片，也就是说不管你的这张图片有没有被加载过，只要ImageView的尺寸不一样，那么Glide就会重新加载一次，这时候，他会在加载ImageView之前从网络上重新下载，然后再缓存。
- 举个例子，如果一个页面的ImageView是300 * 300像素，而另一个页面中的ImageView是100 * 100像素，这时候想要让两个ImageView是同一张图片，那么Glide需要下载两次图片，并且缓存两张图片。
+当我们调整ImageView大小事，因爲緩存的key是基於圖片參數的，==也就是Glide会为每个不同尺寸的ImageView缓存一张图片==，也就是说不管你的这张图片有没有被加载过，只要ImageView的尺寸不一样，那么Glide就会重新加载一次，这时候，他会在加载ImageView之前从网络上重新下载，然后再缓存。
+ 举个例子，如果一个页面的ImageView是300 * 300像素，而另一个页面中的ImageView是100 * 100像素，这时候想要让两个ImageView是同一张图片，==那么Glide需要下载两次图片，并且缓存两张图片==。
 
 
 
 问题2：简单说一下内存泄漏的场景，如果在一个页面中使用Glide加载了一张图片，图片正在获取中，如果突然关闭页面，这个页面会造成内存泄漏吗？
 
-Glide在加载资源的时候，如果是在Activity，Fragment这一类有生命周期的组件上进行的话，会创建一个透明的RequestManagerFragment加入到FragmentManager之中，感知生命周期，当Activity， Fragment等组件进入不可见，或者已经销毁的时候，Glide会停止加载资源。但是如果是在非生命周期的组件上进行时，**会采用Application的生命周期贯穿整个应用**，所以applicationManager只有在应用程序关闭时终止加载。
+Glide在加载资源的时候，如果是在Activity，Fragment这一类有生命周期的组件上进行的话，会创建一个透明的RequestManagerFragment加入到FragmentManager之中，感知生命周期，当Activity， Fragment等组件进入不可见，或者已经销毁的时候，Glide会停止加载资源。但是如果是在非生命周期的组件上进行时，==会采用Application的生命周期贯穿整个应用==，所以applicationManager只有在应用程序关闭时终止加载。
 
 问题3:  Glide 是如何加载 GIF 动图的？
 
@@ -4227,7 +4304,7 @@ Glide在加载资源的时候，如果是在Activity，Fragment这一类有生�
 
 
 ### Gif卡顿
-加载Gif图片的源码得知:Glide在加载Gif的图片帧的时候,上一帧的渲染以及下一帧的准备是串行的,这个过程中,如果出现下一帧的准备阶段时间超过了Gif间隔播放的时长,就会造成播放卡顿.而且此过程中,StandardGifDecoder只保留上一帧的数据,每次获取当前需要绘制的帧的时候都会从BitmapPool中获取新的Bitmap(注意,这是一个新的Bitmap对象),因此加载Gif过程中,Glide至少需要两个Bitmap.这也就导致内存会消耗的过高.
+加载Gif图片的源码得知:Glide在加载Gif的图片帧的时候,==上一帧的渲染以及下一帧的准备是串行的,这个过程中,如果出现下一帧的准备阶段时间超过了Gif间隔播放的时长,就会造成播放卡顿==.而且此过程中,StandardGifDecoder只保留上一帧的数据,每次获取当前需要绘制的帧的时候都会从==BitmapPool中获取新的Bitmap(注意,这是一个新的Bitmap对象)==,因此加载Gif过程中,==Glide至少需要两个Bitmap==.这也就导致内存会消耗的过高.
 ![[aHR0cHM6Ly91cGxvYWQtaW1hZ2VzLmppYW5zaHUuaW8vdXBsb2FkX2ltYWdlcy8yMzA4OTIwNS03OWJjNTAxZGUwMGE0MjAx.png]]
 
 通过引入GIFLIB在native层解码GIF,这样一来内存消耗以及CPU的使用率都可以得到明显的降低和提升.其次通过FrameSequenceDrawable的双缓冲机制进行绘制GIF动画,这样就不需要在Java层的BitmapPool中创建多个Bitmap了.
@@ -4621,9 +4698,9 @@ HandlerThread有自己的内部Looper对象，可以进行loopr循环。通过�
 
 ![[682616-20200517210649824-804004537.png]]
 
-这里采用的epoll机制，是一种IO多路复用机制，可以同时监控多个描述符，当某个描述符就绪(读或写就绪)，则立刻通知相应程序进行读或写操作，本质同步I/O，即读写是阻塞的。 所以说，主线程大多数时候都是处于休眠状态，并不会消耗大量CPU资源。
+这里采用的epoll机制，==是一种IO多路复用机制，可以同时监控多个描述符，当某个描述符就绪(读或写就绪)，则立刻通知相应程序进行读或写操作==，本质同步I/O，即读写是阻塞的。 所以说，主线程大多数时候都是处于休眠状态，并不会消耗大量CPU资源。
 
-我们需要引入**IO多路复用**的概念。多路复用是指使用一个线程来检查多个文件描述符（Fd）（Socket）的[就绪状态，比如调用select和[poll函数]，传入多个文件描述符，如果有一个文件描述符就绪，则返回，否则阻塞直到超时。得到就绪状态后进行真正的操作可以在同一个线程里执行，也可以启动线程执行（比如使用[线程池]。
+我们需要引入**IO多路复用**的概念。==多路复用是指使用一个线程来检查多个文件描述符（Fd）（Socket）的[就绪状态，比如调用select和[poll函数]，传入多个文件描述符，如果有一个文件描述符就绪，则返回，否则阻塞直到超时==。得到就绪状态后进行真正的操作可以在同一个线程里执行，也可以启动线程执行（比如使用[线程池]。
 **io多路复用**也叫**事件驱动模型**。
 [[#4. 管道机制]]
 **多路是指**？多个业务方（句柄）并发下来的 IO 。
@@ -4706,7 +4783,7 @@ private int postSyncBarrier(long when) {
 }
 ```
 
-当队列中出现SyncBarrier（具体实现上就是Message#target为null）时，**就会忽略所有异步消息体，寻找同步消息体，然后优先处理它**，这些API全部都是hide的，也就是说app中是无法使用的，谷歌设计初衷也是系统开发人员自己用的
+当队列中出现SyncBarrier（具体实现上就是Message#target为null）时，**就会忽略所有同步消息体，寻找异步消息体，然后优先处理它**，这些API全部都是hide的，也就是说app中是无法使用的，谷歌设计初衷也是系统开发人员自己用的
 
 消息队列这东西是在安卓一诞生就有了的东西，大部分时候它也没有什么问题。但有一个事情，就是安卓操作系统的UI流畅度远不及水果平台（iOS），原因就是在于水果平台的UI渲染是整个系统中最高优先执行。于是就有了SyncBarrier机制，这东西就是为了让消息队列有优先级，它发送的消息将会是最高优先级的，会被优先处理，这样来达到UI优先渲染，达到提高渲染速度的目的
 
@@ -4745,7 +4822,7 @@ if (msg != null && msg.target == null) {
 ![[6f29502f8ffe416ead3d5c6f571fc31d.png]]
 
 ### 如何避免Sync Barrier搞鬼
-
+（摘自博文，触发可能性存疑，因为postinvalidate会做handler进行线程切换）
 前面提到过，这套东西都是Frameworks层内部的机制，并没有开放给app使用，而Frameworks内部的逻辑一般来说还是相当健壮的，绝大多数时候并不会出问题。当然了，各个厂商内部搞的各种所谓优化，倒是有可能会引发问题。
 
 在实际开发过程中，引发Sync barrier的最多场景就是自定义View。**对于自定义View，是能够在非主线程调用其invalidate的，当有大量的非主线程调用invalidate时，就有可能恰好与主线程的渲染发生交互**，具体case非常corner要刚巧非主线程在postInvalide，**然后主线程也刚巧在发送异步消息，就可能使得Sync barrier没有被移除，从而导致问题。**
@@ -4753,7 +4830,6 @@ if (msg != null && msg.target == null) {
 [[#7.2 View绘制流程]]
 
 这就需要我们在编码阶段做好封装，对于自定义View的刷新触发逻辑做好封装，做一下线程切换，以保证是在主线程里面执行invalidate。因为暴露出去的接口，是没有办法控制的，你没有办法让所有调用者都在主线程里面调用你的接口
-
 
 ## 18.6 View.post
 
@@ -5591,7 +5667,7 @@ destroyItem是fm进行了remove
 
 1. Dalvik与Java虚拟机区别
 
-   1）**基于架构不同**：**Dalvik虚拟机基于寄存器架构**；Java虚拟机基于**栈架构**。
+   1）**基于架构不同**：**Dalvik虚拟机基于寄存器架构** 数据访问通过寄存器间直接传递；Java虚拟机基于**栈架构**。
    2）**执行字节码不同**：**Java虚拟机执行.class文件**；Dalvik虚拟机需要把所有的.**class文件打包到一个.dex文件中**。
    3）共享机制：Dalvik虚拟机**不同应用之间在运行时可以共享相同的类**；Java虚拟机**不同程序打包以后时独立的**。
    
@@ -5661,6 +5737,11 @@ Android提供了一个专门验证与优化dex文件的工具dexopt。其源码�
 ## dex加載流程
 
 [[#52.插件化]]
+ 
+DexFile.loadDex尝试把一个dex文件解析并加载到native内存，在加载到native内存之前，==如果dex不存在对应的odex，那么Dalvik下会执行dexopt，Art下会执行dexoat==，最后得到的==都是一个优化后的odex==。实际上最后虚拟机上==执行的是这个odex而不是dex==。
+
+  
+![[3769423-719ef95f2b18e231.webp]]
 
 ## 28.3常见问题
 
@@ -6356,12 +6437,70 @@ b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
 
 来源链接：https://juejin.cn/post/6844903508865449991
 
-## 3、Tinker
+## 3、Tinker-- 腾讯-微信
 
-## 4、sophix
+也就是instant  run方案：
+1. 支持类替换、So 替换，资源替换是采用类似 instant-run 的方案
+2. 补丁包较小，自研 diff 方案，下发的是差量包，包括的是变更的内容
+3. 支持 gradle，提供了 gradle-plugin，允许我们配置很多内容
+4. 采用全量 Dex 更新，不需要额外处理 `CLASS_ISPREVERIFIED` 问题
+![[WEIXIN_640.jpg]]
+
+## QQ空间超级补丁
+修复CLASS_ISPREVERIFIED标志导致的unexpected DEX problem异常、加载修复的DEX。
+
+![[QQ_640.jpg]]
+优势：
+
+1. 没有合成整包（和微信Tinker比起来），产物比较小，比较灵活
+    
+2. 可以实现类替换，兼容性高。（某些三星手机不起作用）
+    
+
+不足：
+
+1. 不支持即时生效，必须通过重启才能生效。
+
+2. 为了实现修复这个过程，必须在应用中加入两个dex！dalvikhack.dex中只有一个类，对性能影响不大，但是对于patch.dex来说，修复的类到了一定数量，就需要花不少的时间加载。对手淘这种航母级应用来说，启动耗时增加2s以上是不能够接受的事。
+
+3. 在==ART模式下，如果类修改了结构，就会出现内存错乱的问题==。为了解决这个问题，就必须把==所有相关的调用类、父类子类等等全部加载到patch.dex中==，导致补丁包异常的大，进一步增加应用启动加载的时候，耗时更加严重。
+
+## AndFix-阿里
+核心就在于通过native层获取dvm加载的类把方法指针进行替换。
+
+![[andfix_640.jpg]]
 
 
+对于Dalvik来说，遵循JIT即时编译机制，需要在运行时装载libdvm.so动态库，获取以下内部函数：
 
+1） dvmThreadSelf( )：查询当前的线程；
+
+2）dvmDecodeIndirectRef()：根据当前线程获得ClassObject对象。
+![[andfix_2.jpg]]
+
+最大的优势在于
+
+1. BUG修复的即时性
+    
+2. 补丁包同样采用差量技术，生成的PATCH体积小
+    
+3. 对应用无侵入，几乎无性能损耗
+    
+
+不足：  
+
+1. 不支持新增字段，以及修改<init>方法，也不支持对资源的替换。
+    
+2. 由于厂商的自定义ROM，对少数机型暂不支持。
+
+## 4、sophix-阿里
+
+## so库修复方案
+
+本质是对native方法的修复和替换。类似类修复反射注入方式，将==补丁so库的路径插入到nativeLibraryDirectories数据最前面==。
+## 对比表格
+![[hot_fix.jpg]]
+![[3769423-a02b417960bd228e.webp]]
 # 46.JETPACK--ROOM
 
 JETPACK
@@ -6682,7 +6821,119 @@ Handler  采用的管道通信[[#线程阻塞和唤醒/nativePollOnce和wake()]]
 ## 5. 共享内存
 无需拷贝到内核空间，实现和控制复杂，双端自行处理并发同步等问题。访问接入点不安全，访问内存的身份不确定。
 
+## Messager
+Messenger底层也是通过aidl实现，不过封装了一层，aidl支持多线程并发。messenger是同步，如果没有多线程并发要求，就可以使用轻量级的Messenger。
 
+注册service
+```xml
+<service android:name="[你的包名].main.MessengerService"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+            <action android:name="随便写xxx.MessengerService" />
+            </intent-filter>
+        </service>
+
+```
+```java
+/**
+ * //0. 去清单文件中配置service并设置启动action
+ */
+public class MessengerService extends Service {
+    private static final String TAG = "MessengerService";
+
+//    1.创建接受信息的handler
+    @SuppressLint("HandlerLeak")
+    private Handler msgHandler = new Handler(){
+        @Override
+        public void handleMessage(Message msg) {
+            super.handleMessage(msg);
+            // 4.接口客户端消息
+            Bundle data = msg.getData();
+            String clientMsg = data.getString("client");
+            Log.i(TAG, "客户端消息: "+clientMsg);
+
+            //5.获取Messenger对象发送消息
+            Message message = Message.obtain();
+            Bundle serviceBundle = new Bundle();
+            serviceBundle.putString("service","服务端收到消息");
+            message.setData(serviceBundle);
+            try {
+                Messenger clientMessenger = msg.replyTo;
+                clientMessenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+        }
+    };
+//    2.创建Messenger对象,并绑定Handler
+    private final Messenger mServiceMessenger = new Messenger(msgHandler);
+
+//    3.通过Messenger获取Binder对象
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        // IMessenger.asBinder()
+        return mServiceMessenger.getBinder();
+    }
+}
+```
+
+```java
+ //1. 绑定service，获得IBinder回调
+    ServiceConnection conn = new ServiceConnection() {
+        @Override
+        public void onServiceConnected(ComponentName name, IBinder service) {
+            Log.i(TAG, "onServiceConnected: " + name);
+            //3. 获取服务端的Messenger对象
+            Messenger serviceMessenger = new Messenger(service); // 利用Messenger的构造方法获取IMessenger.Stub.asInterface(service);是底层生成好的aidl实现类IMessenger
+            //4. 准备消息
+            Message message = Message.obtain();
+            Bundle b = new Bundle();
+            b.putString("client", "服务端你好，我是客户端");
+            message.setData(b);
+
+            //7.在消息中添加客户端回复入口Messenger，Optional Messenger where replies to this message can be sent.
+            message.replyTo = mClientMessenger;
+            //8.发送消息，通过IMessenger发送消息
+            try {
+                serviceMessenger.send(message);
+            } catch (RemoteException e) {
+                e.printStackTrace();
+            }
+
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName name) {
+            Log.i(TAG, "onServiceDisconnected: " + name);
+        }
+    };
+
+    //2. 绑定服务端服务
+    private void connectService() {
+        Intent intent = new Intent(SERVICE_ACTION);
+        intent.setPackage(SERVICE_PACKED);
+        boolean b = bindService(intent, conn, Context.BIND_AUTO_CREATE);
+        Log.i(TAG, "connectService: 绑定服务 " + b);
+    }
+
+    //5 创建客户端接受消息的handler
+    @SuppressLint("HandlerLeak")
+    private Handler handler = new Handler() {
+        @Override
+        public void handleMessage(@NonNull Message msg) {
+            super.handleMessage(msg);
+            Bundle bundle = msg.getData();
+            String service = bundle.getString("service");
+            Log.i(TAG, "服务端的回复： " + service);
+
+        }
+    };
+
+    //6.创建客户端Messenger，并绑定handler
+    private Messenger mClientMessenger = new Messenger(handler);
+```
 ## BINDER
 
 启动时机：[[#ServiceManager]]
@@ -7629,7 +7880,48 @@ weiview记得destroy的时候，stoploading，调用onPause，clearCache，remov
 	- MemGuard
     
     检测堆内存访问越界、使用释放后的内存、重复释放等问题
+Android dump日志详解
+简介
 
+在Android开发过程中，我们经常会遇到一些难以调试的问题，比如应用崩溃、内存泄漏等。为了解决这些问题，我们需要收集相关的调试信息。Android系统提供了一种称为dump log的机制，可以帮助我们收集与应用有关的日志信息。本文将介绍Android dump日志的原理、用法及示例代码。
+什么是dump日志
+
+Android的dump日志机制允许我们在应用发生崩溃或其他异常情况时，将调试信息输出到日志文件中。这些调试信息可以包括应用的堆栈跟踪、内存使用情况、线程信息等。通过分析这些日志，我们可以更好地理解应用的运行状况，帮助我们定位和解决问题。
+使用dump日志
+
+使用Android的dump日志功能，我们需要先在应用中添加相关的代码。以下是一个简单的示例：
+
+```
+import android.os.Debug;
+public class MyApplication extends Application {
+    @Override
+    public void onCreate() {
+        super.onCreate();
+
+        if (BuildConfig.DEBUG) {
+            Debug.dumpHprofData("/sdcard/myapp.hprof");
+        }
+    }
+}
+```
+
+以上代码是在应用的Application类中调用了Debug.dumpHprofData()方法，将堆栈信息以Hprof格式输出到文件/sdcard/myapp.hprof中。这里需要注意的是，该方法只在debug模式下起作用，因此我们需要使用BuildConfig.DEBUG进行判断。
+
+值得一提的是，除了Debug.dumpHprofData()方法，Android还提供了其他一些dump方法，如Debug.dumpMemoryInfo()用于输出内存信息、Debug.dumpNativeBacktrace()用于输出Native层的堆栈信息等。根据实际需求，我们可以选择适合的方法进行调用。
+分析dump日志
+
+一旦日志文件生成，我们就可以使用各种工具对其进行分析了。Android Studio提供了一个名为Android Profiler的工具，可以方便地查看和分析dump日志。
+
+首先，我们需要将日志文件导入到Android Studio中。在Android Profiler界面的左下角，点击Import HProf按钮，选择日志文件进行导入。导入后，我们可以在Memory选项卡中查看堆栈信息、内存使用情况等。
+
+另外，还可以使用一些第三方工具进行分析，比如MAT（Memory Analyzer Tool）。该工具可以帮助我们更深入地分析dump日志，找出应用中的内存泄漏等问题。
+总结
+
+通过使用Android的dump日志功能，我们可以收集应用的调试信息，帮助我们定位和解决问题。本文介绍了如何使用dump日志功能，并提供了示例代码。希望本文对你理解和使用Android dump日志有所帮助。
+-----------------------------------
+©著作权归作者所有：来自51CTO博客作者mob649e8158a948的原创作品，请联系作者获取转载授权，否则将追究法律责任
+解决Android dump日志的具体操作步骤
+https://blog.51cto.com/u_16175451/6650442
 # 57. NDK开发
 
 这本来应该是个大章节独立一个md文档出来的，但是这里只介绍基础和核心的部分。
