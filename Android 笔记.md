@@ -1,4 +1,9 @@
-
+其他细分领域：
+[[音视频开发--基于Android平台]]
+[[Android跨平台--Flutter混合开发]]
+[[Android逆向开发与安全]]
+[[Android--Framework详解与开发]](待写)
+[[Android--HAL与驱动开发]](待写)
 # 0.基础
 
 ## 0.1 android体系结构
@@ -6,7 +11,7 @@
 Andrid系统的体系结构设计为多层结构，这种结构在给用户提供安全保护的同时还保持了开放平台的灵活性。如下图所示：
 
 官方图
-![](7048342-ee25f19c86daa94a.webp)
+![](7048342-ee25f19c86daa94a%201.webp)
 
 Google官方提供的Android系统的四层架构图
 应用层，framework，第三方c++库 + 安卓虚拟机 + java核心库，linux内核层。
@@ -384,7 +389,19 @@ Queuework：这是个内部 工具 类，用于==跟踪那些未完成的或尚�
 你肯定要问，为什么过渡使用apply方法，就有可能导致ANR？那我们只能看QueuedWork.waitToFinish();当任务未完成的时候会阻塞。
 
 ### SQLite
-SQLite是一个轻量级的数据库，支持基本SQL语法，是常被采用的一种数据存储方式。Android为此数据库提供了一个名为SQLiteDatabase的类，封装了一些操作数据库的API
+SQLite是一个轻量级的数据库，支持基本SQL语法，是常被采用的一种数据存储方式。Android为此数据库提供了一个名为SQLiteDatabase的类，封装了一些操作数据库的API.
+
+索引是一种数据结构，顾名思义，跟我们看书的某一页的索引一样用于快速寻找到某一页，按照索引字段进行排序。
+[[数据库基础与原理]]
+
+了解即可：
+	1. 单列索引：基于一个表的单个列创建的索引。
+	2. 多列索引（复合索引）：基于表的多个列创建的索引，通常用于多条件查询的优化。
+	3. 唯一索引：这种索引要求索引列的所有值都是唯一的，因此可以防止重复数据。主键索引就是一种特殊的唯一索引。
+	4. 非唯一索引：此类型的索引允许索引列出现重复的值。
+	5. 聚簇索引：这种索引将数据行与索引结构紧密结合在一起，因此数据行按照索引顺序存储。在查询时，如果使用聚簇索引的列进行查询，数据行本身可以在索引结构中找到。
+	6. 非聚簇索引：这种索引与聚簇索引相反，保持了数据行和索引结构的独立性。非聚簇索引通常为数据行提供一个“指针”，指示数据行在数据表中的实际位置。
+
 ### 3. 布局面试
 [布局对比和常见面试问题](https://www.dandelioncloud.cn/article/details/1546584614565527554)
 - xmlns：android是XML中的命名空间，为了防止属性冲突。类似于Java中的package。xmlns：android的值是不允许任意设置的。xmlns：android的是必须是以“http://schemas.android.com/apk/res”开始，后面的部分表示定义属性R.java文件所在的包名。在R.java文件中包含了属性名的定义。例如，如果使用系统属性，需要指定系统R.java文件的位置。该文件位于res \\ android目录中，因此，xmlns：android值的最后是android。
@@ -999,7 +1016,7 @@ onRestoreInstanceState()方法的作用
 ### 2.2.1 app启动流程
 相关扩展[[#五,系统启动流程]]
 相关扩展[[#2.2.2 activity启动流程]]
-#### 流程：
+#### 流程
 
 **app启动流程** 
 
@@ -1144,10 +1161,10 @@ App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局�
 ->**通过binder - applicationThread 跨进程调用 ActivityTaskManagerService.startActivity()**
 
 ->ams 通过 applicationThread 回调ActivityThread.startActivityNow ，并传回一个token
-	- ams解析了activity信息
+	- ams解析了activity信息，发送ActivityClientRecord到Activity
 -》ActivtiyThread.handleLaunchActivity()-》ActivtiyThread.performLanchActivity()
 - 创建aactivityContext
-- 调用mInstrumentation.newActivtiy创建对象activtiy-》没有appliction则创建appliction或者获取已有（现有activity再有appliction） 
+- 调用mInstrumentation.newActivtiy创建对象activtiy
 		- 》調用activtiy.ATTCH（传入了大量参数，instrument等等
 		- 》**在Activtiy.attch(....)方法中創建phonewindow，windowsmanager**
 		
@@ -1221,6 +1238,17 @@ AMS是Android系统中的核心服务之一，它负责==控制应用程序的�
 ATMS是另一个系统服务，它负责管理应用程序的任务和界面。它提供了一组API，允许应用程序在Android设备上创建、管理和切换应用程序界面。ATMS还负责==管理应用程序的任务，例如在设备上创建新的任务或切换到现有的任务==。
 
 AMS和ATMS之间有紧密的关系。ATMS依赖于AMS来获取关于应用程序的信息，例如应用程序的名称、标识符和权限等。同时，AMS也依赖于ATMS来管理应用程序的界面和任务。在Android系统中，AMS和ATMS共同协作，确保应用程序的正确执行和任务的顺畅切换。
+
+### PKMS/PackageManagerService
+要先注意的是PMS是指PowerMangerService，不是指PKMS。
+
+主要职责：==安装、卸载、AndroidManifest解析、扫描apk文件、权限获取==
+
+核心源码路径
+![[截图20230916191048.png]]
+
+
+PKMS启动时候是比较费时的，因为在启动的时候需要解析系统根目录下的几个主要的apk路径（包括了data/data下的apk和system下的apk），==解析apk结构，package信息和四大组件==的信息，以及==权限==
 ## 2.3 APP重启
 
 ```JAVA
@@ -1323,6 +1351,8 @@ public class MyService extends Service{
  } else {
      context.startService(intent);
      }
+```java
+```
 
 ## 2.服务之间通信
 
@@ -1404,7 +1434,15 @@ public class MyService extends IntentService {
 
 
 
-如此，线程就会自动启动并执行逻辑，执行完毕后自动关闭。这就是**IntentService** 的好处，能够自动开启和关闭； 
+如此，==线程就会自动启动并执行逻辑，执行完毕后自动关闭==。这就是**IntentService** 的好处，能够自动开启和关闭； 
+
+### IntentService 特征
+
+会创建独立的 worker 线程来处理所有的 Intent 请求；
+会==创建独立的 worker 线程来处理 onHandleIntent()方法实现的代码==，无需处理多线程问题；
+所有请求处理完成后，IntentService 会自动停止，无需调用 stopSelf()方法停止 Service；
+为 Service 的 onBind()提供默认实现，返回 null；
+为 Service 的 onStartCommand 提供默认实现，将请求 Intent 添加到队列中； 
 
 ## 5.生命周期
 
@@ -1676,9 +1714,9 @@ public void onRequestPermissionsResult(int requestCode, String[] permissions, in
 Framework层： 由**InpurServiceManager通过InputDispatcher分发到对应窗口**，对应窗口是在**wms中查询窗口集合**得到的。
 下图为分发流程图：
 
-图1：![](966283-b9cb65aceea9219b.png)
+图1：![](966283-b9cb65aceea9219b%201.png)
 
-图2 视图三者一般结构：![](5bbb5665bb58f.png)
+图2 视图三者一般结构：![](5bbb5665bb58f%201.png)
 
 事件分为三层，从图1来看，从上往下为activity、viewgroup、view。事件由左上角传入，由activity的分发器dispatch做事件分发
 
@@ -1786,7 +1824,18 @@ B.建立不同drawable匹配
 
 3、用weight和match等，少用dp在**位置**布局里  layout上的weight等等
 
+当设备的屏幕 DPI 不是基准（mdpi，160 dpi）时，Android 系统会根据设备的实际屏幕密度尝试匹配最合适的资源目录。以下是一些常见的屏幕密度和对应的资源目录：
 
+- ldpi（低密度，120 dpi）：res/drawable-ldpi
+- mdpi（中密度，160 dpi）：res/drawable-mdpi
+- hdpi（高密度，240 dpi）：res/drawable-hdpi
+- xhdpi（超高密度，320 dpi）：res/drawable-xhdpi
+- xxhdpi（超超高密度，480 dpi）：res/drawable-xxhdpi
+- xxxhdpi（超超超高密度，640 dpi）：res/drawable-xxxhdpi
+
+系统会尝试从离设备屏幕密度最近的资源目录中获取图像资源。例如，如果设备的屏幕密度介于 mdpi（160 dpi）和 hdpi（240 dpi）之间，系统会根据实际密度与这些密度之间的关系来确定资源目录。如果没有更接近设备密度的文件夹，系统通常会选择较高密度的资源文件夹，然后缩放图像以适应屏幕。
+
+因此我们采用==矢量图svg替代位图==才是最好的选择，==容量小、无损缩放且缩放不怎么消耗性能==
 
 # 7.Android视图及自定义view
 
@@ -2471,10 +2520,40 @@ activtiy onResume之后才绑定
 
 ###  7.4.1 window分类
 
-Window 有三种类型，分别是**应用 Window**、**子 Window** 和**系统 Window**。应用类 Window 对应一个 Acitivity，子 Window 不能单独存在，需要依附在特定的父 Window 中，比如常见的一些 Dialog 就是一个子 Window。系统 Window是需要声明权限才能创建的 Window，比如 Toast 和系统状态栏都是系统 Window。
+Window 有三种类型，分别是==应用 Window==、==子 Window==和==系统 Window==。
+==应用类 Window 对应一个 Acitivity==，==子 Window 不能单独存在，需要依附在特定的父 Window 中，比如常见的一些 Dialog 就是一个子 Window==。
+
+需要注意的是， ==popupwindow和toast都不是window，而是view==。
+系统 Window是需要声明权限才能创建的 Window，比如 Toast 和系统状态栏都是系统 Window。
 ![[14919101-a34496946644357e.webp]]
 
 window主要用于管理decoview，与WindowManagerService通过AIDL IBinder --- windowSession 
+
+#### Dialog
+首先看看Dialog的构造方法
+```java
+
+    Dialog(@NonNull Context context, @StyleRes int themeResId, boolean createContextThemeWrapper) {
+      	
+      	//省略无关代码
+      	
+        mWindowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+
+        final Window w = new PhoneWindow(mContext);
+        mWindow = w;	//Dialog中的Window其实是一个PhoneWindow
+       
+       //一些Window的设置
+    }
+
+```
+
+
+从它的构造方法可以看出，Dialog中的Window其实是一个PhoneWindow
+
+#### 特殊说明
+如果你通过wm.addView添加的view，view会在decordview之上，但是你再启动一个dialog则会覆盖这个view。
+`Dialog`可以被认为是一个子窗口（`Window`）。它是一个在已有`Activity`窗口之上，在用户界面层级中具有较高优先级的窗口。当一个`Dialog`实例被创建时，它会创建自己的窗口，与现有的`Activity`窗口分离，但同时与之关联。
+
 
 #### WindowToken：
 
@@ -2917,7 +2996,7 @@ fun Context.queryBatteryOptimizeStatus():Boolean{
 
 ## 主框架流程图
 
-![](3631399-0626631d246373a4.png)
+![](3631399-0626631d246373a4%201.png)
 
 ## 基本原理
 基于socket的以及复用连接池，线程池，支持超时链接高并发的高性能高可扩展的多功能网络框架。
@@ -3369,6 +3448,11 @@ val networkResponse = chain.proceed(requestBuilder.build())
 **OKHttp如何复用TCP连接？**
 ConnectInterceptor的主要工作就是负责建立TCP连接，建立TCP连接需要经历三次握手四次挥手等操作，如果每个HTTP请求都要新建一个TCP消耗资源比较多。
 
+在使用 HTTP/1.1 或 HTTP/2 协议时，==OkHttp 的连接池会将完成请求的 TCP 连接存放起来，以便后续请求可以复用这些连接。==
+
+持久连接使得在多个请求和响应之间共享同一 TCP 连接成为可能。==在 HTTP/1.1 中，请求和响应在持久连接上顺序传输；而在 HTTP/2 中，多个请求和响应可以并行地在同一连接上进行传输，通过多路复用（Multiplexing）来提高性能。==
+连接池的主要目的是在多个 HTTP 请求之间高效地重用和共享这些已经建立的持久连接。
+
 而Http1.1已经支持keep-alive，即多个Http请求复用一个TCP连接，OKHttp也做了相应的优化，下面我们来看下OKHttp是怎么复用TCP连接的。
 
 [[#**OkHttp的复用连接池**]]
@@ -3408,13 +3492,13 @@ RealInterceptorChain的proceed方法，通过顺序地传入一个拦截器的�
 
  
 
-![](1728184-7ba0e2d734014b3b.webp)
+![](1728184-7ba0e2d734014b3b%201.webp)
 
 
 
  其实 Interceptor的设计也是一种分层的思想，每个 Interceptor 就是一层。为什么要套这么多层呢？分层的思想在 TCP/IP 协议中就体现得淋漓尽致，分层简化了每一层的逻辑，每层只需要关注自己的责任（单一原则思想也在此体现），而各层之间通过约定的接口/协议进行合作（面向接口编程思想），共同完成复杂的任务，这是典型的[责任链设计模式](https://link.jianshu.com?t=https%3A%2F%2Fwww.cnblogs.com%2Fjava-my-life%2Farchive%2F2012%2F05%2F28%2F2516865.html)
 
- ![](1728184-2e74efa5083f6134.png)
+ ![](1728184-2e74efa5083f6134%201.png)
 
 
 
@@ -3706,7 +3790,7 @@ Kotlin Compiler Plugin** 在 kotlinc 过程中提供 hook 时机，可以再次�
 
 # 14.序列化：Serializable和Pracelable
 
- 序列化：
+ ## 序列化：
 
 序列化与反序列化都是一个过程，
 
@@ -4584,7 +4668,7 @@ private static void handleCallback(Message msg){
 //enqueue()
 、、
 Message p = mMessages;  
-    boolean needWake;
+boolean needWake;
  //执行时间比它早
     if (p == null || when == 0 || when 《 p.when) { 
         // New head, wake up the event queue if blocked.  
@@ -4842,6 +4926,7 @@ if (msg != null && msg.target == null) {
 
 #  19.ARoute和组件化
 [[#52.插件化]]
+![[v2-1e7d90a3f802a46d391f88f599006b47_b.webp]]
 
 关键词：postcard，注解，inject（this），apt生成路径，反射
 
@@ -4899,6 +4984,46 @@ Bundle bundle = new Bundle();
 ```
 
 
+
+## SPI——Autoservice切面组件注册
+原理：AutoService会自动在==META-INF文件夹下生成Processor配置信息文件==，该文件里就是实现该服务接口的具体实现类。而当外部程序装配这个模块的时候， 就能通过该jar包==META-INF/services/==里的配置文件找到具体的实现类名，并装载实例化，完成模块的注入。
+(APT 也需要这个)
+-  添加依赖
+
+```
+ implementation 'com.google.auto.service:auto-service:1.0-rc6'
+    kapt "com.google.auto.service:auto-service:1.0-rc6"
+kotlin-kapt'
+```
+
+
+ - 使用 @AutoService 注解
+```kotlin
+public interface BaseShayPlugin {  
+    boolean initPlugin();  
+}
+
+@AutoService(BaseShayPlugin::class)  
+class FirstPlugin:BaseShayPlugin {  
+    override fun initPlugin(): Boolean {  
+        Log.d("就那样", "FirstPlugin初始化")  
+        return true  
+    }  
+}
+```
+ - 加载被注解的类
+ ```kotlin
+ object LoadInitUtil {  
+    suspend fun initAll(){  
+        val shayPlugins = ServiceLoader.load(BaseShayPlugin::class.java).toList()  
+        shayPlugins.asFlow()  
+            .filter { true }  
+            .collect{//自动初始化所有组件  
+                it.initPlugin()  
+            }  
+    }  
+}
+ ```
 
 # 20. 响应式编程 RXJAVA
 
@@ -5097,7 +5222,7 @@ OKhttp会通过dispatch事件分发器将请求对象发送到RealCall 类，**�
 
 帧动画、补间动画、属性动画 
 
-![](微信截图_20210314010524.png)
+![](微信截图_20210314010524%201.png)
 
 animatior补间动画：我们一般是通过animation xml获取到animation再进行播放
 animation属性动画：通过animator进行数值变化的监听并进行操作，或者使用ObjectAnimator进行操作。
@@ -5406,12 +5531,14 @@ Retrofit接口的返回值分为两部分，一部分是前面的**Call**或者*
 将对应的方法和参数传入OkHttpCall ，最终调用Call的enqueue() —> OkHttpCall的enqueue() —> okhttp的enqueue() 。如果需要配置自定义的okhttp拦截器获取日志，则需要添加自己创建的okhttp客户端。
 
 思考：
-那么需要把retrofit做成单例吗？
-请求多的时候做成单例比较合适，做一个RetrofitWarrper，这样子调用Retorfit的时候就可以充分利用缓存。单个页面重复某个亲请求多次的时候（比如商品列表），那该activtiy就一直用同一个Retrofit即可。
+1. 那么需要把retrofit做成单例吗？
+==请求多的时候做成单例比较合适，做一个RetrofitWarrper，这样子调用Retorfit的时候就可以充分利用缓存。单个页面重复某个亲请求多次的时候（比如商品列表），那该activtiy就一直用同一个Retrofit即可。==
 
 
-那么可以添加多个CallAdapter吗? 
+2. 那么可以添加多个CallAdapter吗? 
 可以，Retofit会自动遍历返回值类型查找对应的callAdapter
+
+
 ## 核心技术
 	注解，大量反射，动态代理，泛型
 
@@ -5692,17 +5819,17 @@ destroyItem是fm进行了remove
 
    可以看出每次gc后内存千疮百孔，本来连续分配的内存块变得碎片化严重，之后再分配进入的对象再进行内存寻址变得困难。
    
-   ART的解决:在ART中,它将Java分了一块空间命名为Large-Object-Space, **这块内存空间的引入用来专门存放large object**。同时ART又引入了moving collector的技术,即将不连续的**物理内存块进行对齐**.对齐了后内存碎片化就得到了很好的解决.Large-Object-Space的引入一是因为moving collector对大块内存的位移时间成本太高,而且提高内存的利用率 根官方统计，ART的内存利用率提高10倍了左右。
+   ART的解决: ==在ART中,它将Java分了一块空间命名为Large-Object-Space==, **这块内存空间的引入用来专门存放large object**。同时ART又引入了moving collector的技术,即将不连续的**物理内存块进行对齐**.对齐了后内存碎片化就得到了很好的解决.Large-Object-Space的引入一是因为moving collector对大块内存的位移时间成本太高,而且提高内存的利用率 根官方统计，ART的内存利用率提高10倍了左右。
    
    ART 有多个不同的 GC 方案，这些方案包括运行不同垃圾回收器。**默认方案是 CMS（并发标记清除）
    
-   ART主要使用粘性 CMS 和部分 CMS。粘性 CMS 是 ART 的不移动分代垃圾回收器。它仅扫描堆中自上次 GC 后修改的部分，并且只能回收自上次 GC 后分配的对象。除 CMS 方案外，当应用将进程状态更改为察觉不到卡顿的进程状态（例如，后台或缓存）时，ART 将执行堆压缩。也就是说，可以认为是CMS(Concurrent Mark-Sweep)，但是不同情况又有不同的使用，主要是粘性CMS和分部CMS的区别。
+   ART主要使用粘性 CMS 和部分 CMS。粘性 CMS 是 ART 的不移动分代垃圾回收器。它仅扫描堆中自上次 GC 后修改的部分，并且只能回收自上次 GC 后分配的对象。除 CMS 方案外，当应用将进程状态更改为==察觉不到卡顿的进程状态（例如，后台或缓存）时，ART 将执行堆压缩。==也就是说，可以认为是CMS(Concurrent Mark-Sweep)，但是不同情况又有不同的使用，主要是粘性CMS和分部CMS的区别。
 
 
 
 
 
-**Dalvik虚拟机执行的是dex字节码，ART虚拟机执行的是本地机器码**。
+**Dalvik虚拟机执行的是dex字节码，ART虚拟机执行的是本地机器码**。但是ART也是兼容的dex字节码的。
 
 ## dex结构
 dex文件结构, 与class的区别在与索引头区里，class文件直接是
@@ -5723,22 +5850,24 @@ Android提供了一个专门验证与优化dex文件的工具dexopt。其源码�
 
 - class：java编译后的⽂件，每个类对应⼀个class⽂件
 - dex：Dalvik EXecutable把class打包在⼀起，⼀个dex可以包含多个class⽂件
-- odex：Optimized DEX针对系统的优化，例如某个⽅法的调⽤指令，会把虚拟的调⽤转换为使⽤具体的index，这样在执⾏的时候就不⽤再查找了
-- oat：Optimized Androidfile Type。使⽤AOT策略对dex预先编译（解释）成本地指令，这样再运⾏阶段就不需再经历⼀次解释过程，程序的运⾏可以更快
+- odex：Optimized DEX针对系统的优化，例如某个⽅法的调⽤指令，==会把虚拟的调⽤转换为使⽤具体的index，这样在执⾏的时候就不⽤再查找了==dexopt主要在应用安装时使用，其主要目的是对 DEX 文件进行==验证、优化和生成 ODEX (Optimized DEX) 文件==。这个过程允许Android系统为新安装的应用生成特定于设备的优化版本。
+- oat：Optimized Androidfile Type。==使⽤AOT策略对dex预先编译（解释）成本地指令，这样再运⾏阶段就不需再经历⼀次解释过程，程序的运⾏可以更快==
 - AOT：Ahead-Of-Time compilation预先编译
 
-- dexopt 是对 dex 文件 进行 verification 和 optimization 的操作，其对 dex 文件的优化结果变成了 odex 文件，这个文件和 dex 文件很像，只是使用了一些优化操作码（譬如优化调用虚拟指令等）。
+- dexopt 是对 dex 文件 进行 verification 和 optimization 的操作，其对 dex 文件的优化结果变成了 odex 文件，==这个文件和 dex 文件很像，只是使用了一些优化操作码（譬如优化调用虚拟指令等）。==
     
-- dex2oat 是对 dex 文件的 AOT 提前编译操作，其需要一个 dex 文件，然后对其进行编译，结果是一个本地可执行的 ELF 文件，可以直接被本地处理器执行。
+- dex2oat 是对 dex 文件的== AOT 提前编译操作，其需要一个 dex 文件，然后对其进行编译，结果是一个本地可执行的 ELF 文件，可以直接被本地处理器执行==。
     
 
-除此之外在上图还可以看到 Dalvik 虚拟机中有使用 JIT 编译器，也就是说其也能将程序运行的热点 java 字节码编译成本地 code 执行，所以其与 Art 虚拟机还是有区别的。Art 虚拟机的 dex2oat 是提前编译所有 dex 字节码，而 Dalvik 虚拟机只编译使用启发式检测中最频繁执行的热点字节码。
+除此之外在上图还可以看到 Dalvik 虚拟机中有使用 JIT 编译器，也就是说其也能将程序运行的热点 java 字节码编译成本地 code 执行，所以其与 Art 虚拟机还是有区别的。==Art 虚拟机的 dex2oat 是提前编译所有 dex 字节码==，而 Dalvik 虚拟机==只编译使用启发式检测中最频繁执行的热点字节码。==
 
 ## dex加載流程
 
 [[#52.插件化]]
- 
-DexFile.loadDex尝试把一个dex文件解析并加载到native内存，在加载到native内存之前，==如果dex不存在对应的odex，那么Dalvik下会执行dexopt，Art下会执行dexoat==，最后得到的==都是一个优化后的odex==。实际上最后虚拟机上==执行的是这个odex而不是dex==。
+
+APK安装后的DEX文件通常位于手机的/data/dalvik-cache目录下。具体位置会因手机版本、Android系统版本、厂商定制等因素而有所不同。一般来说，在/data/dalvik-cache目录下的文件，以apk文件名命名的文件夹内。
+
+DexFile.loadDex尝试把一个dex文件解析并加载到native内存，在加载到native内存之前，==如果dex不存在对应的odex，那么Dalvik下会执行dexopt操作，Art下会执行dex2oat操作==，最后得到的==都是一个优化后的odex==。实际上最后虚拟机上==执行的是这个odex而不是dex==。
 
   
 ![[3769423-719ef95f2b18e231.webp]]
@@ -6119,19 +6248,29 @@ Android 密钥库密钥使用两项安全措施来避免密钥材料被提取：
 # 39.MMKV 与SP
 [[#sharedPrefenrence (简介， 详细对比见39)]]
 
+**此处讲一下数据拷贝**
+一般来说，linux系统读取文件需要两次拷贝，一次是从==磁盘拷贝到内核缓冲区==，==再拷贝到用户空间==，那么就是拷贝两次。
+
+我们讲的==mmap==技术是指==内核空间==缓冲区直接==映射到用户空间==，零拷贝指的是内核空间和用户空间操作的时候零次拷贝。如果操作文件的话，那么其实是可以实时同步内核区到文件，或者是等待缓冲区再同步到文件。
+
+关于==Binder==的‘一次拷贝’，正常的binder不涉及文件操作，那么它的一次拷贝是哪里来的呢？
+他的一次拷贝是因为 c/s架构的设计，我们知道，==进程间的用户空间是隔离的，共享数据需要在内核空间之间拷贝==，那么直接把内核空间映射到服务端的用户空空间，那么拷贝只有==客户端需要进行，所以这是一次拷贝==。
+
 ## **sharedPrefences：**
 
 MMKV 是sharedP的优化, sp初始化子线程读取xml存在arraymap中，final map存在k name和v xml文件 ，会持续占用内存
 
-commit（同步） apply（异步）都会anr 异步任务过多，等待锁过多（锁会放到Queuework中），activity onstop或者service onstop onstartcommand时候会等待queuework释放（Queuework.waitToFinish）
+commit（同步） apply（异步）都会anr 异步任务过多，等待锁过多（锁会放到Queuework中），--==activity onstop==或者==service onstop= onstartcommand==时候会等待queuework释放（Queuework.waitToFinish）
 
 
 
 **sp更新是全量更新**
+文件的读取==需要拷贝两次，先拷贝到内核空间，再拷贝到用户空间，才能操作。==
 
 ## **MMKV:**（优化sp）
-高性能，支持多进程（文件锁，数据同步用的是校验码）
-mmkv的优化：
+高性能，支持多进程（==文件锁，数据同步用的是校验码==）
+MMKV对于多进程访问提供了基本的保护，但在多线程访问情况下，为了确保线程安全，你需要自行处理线程同步问题。
+### mmkv的优化：
 解决方案1：mmap内存映射→零拷贝技术。java filechannel底层也是mmap。m-map映射之后存在map中。
 
 解决方案2：数据格式protobuf（key长度值动态长度，比如arraylist扩容同理），类似二进制链表，总长-key长-key-v长-v- 总长...，**每次读取都是最新的。而且数据紧凑，没有太多多余数据**
@@ -6167,30 +6306,39 @@ LeakCanary的基础是一个叫做ObjectWatcher Android的library。
 [[#52.插件化]]
 
 # 43.Bitmap与Bitmap优化
+相关：[[#15.图片裁剪和大图显示]]
 
 ## 简述
 何为bitmap?
+Bitmap负责对二进制的图片资源进行解码、显示、编辑等操作。
+bitmap在在native层创建，并且有大量操作在navive层。
+图片多大，bitmap就加载多大，跟iamgerview的大小没关系。
+读取位图Bitmap时，如果分给虚拟机中的图片的堆栈大小只有8M，超出了，就会出现OutOfMemory异常。
 
-bitmap在在native层创建，并且有大量操作在navive层
+加载 Bitmap到内存里以后，是包含两部分内存区域的。简单的说，==一部分是Java部分的，一部分是C部分的==。这个==Bitmap对象是由Java部分分配的，不用的时候系统就会自动回收了==，但是那个对应的C可用的内存区域，虚拟机是不能直接回收的，这个只能调用底层的功能释放。所以需要调用 ==recycle()方法来释放C部分的内存==。从Bitmap类的源代码也可以看到，recycle()方法里也的确是调用了JNI方法了的。
+
 
 ## 占用大小
 
-  实际大小 = bitmap.width() * bitmap.height() * 4。(RGB：4 ,565：2)
+	  实际大小 = bitmap.width() * bitmap.height() * 4。(RGB：4 ,565：2)
 
-原理：bitmap生成时取决于density与targetDenstiry参数，前者取决于分辨率文件夹，后者取决于屏幕密度
+原理：==bitmap生成时取决于density与targetDenstiry参数，前
+者取决于分辨率文件夹，后者取决于屏幕密度==
 
 结论：
 
 Bitmap在内存当中占用的大小其实取决于以下三点：
 
 - 色彩格式（colorType）
-rgb565 RGB8888等等
+	rgb565、RGB8888等等
 
 - 原始文件存放的资源目录（density）
-
+	根据所加载的资源目录，图片的实际尺寸可能会有所不同。例如，当加载一张在 hdpi 目录下的图片到一个 mdpi 密度的设备上时，图片实际尺寸会进行相应的调整。
 - 目标屏幕的密度（targetDenstiry）
+	- 当加载的图片资源与目标屏幕密度不匹配时，系统会根据目标屏幕密度对图片进行缩放。这会导致实际加载到内存的 Bitmap 尺寸与原始文件尺寸的差异，从而影响内存占用。
 
-  ## 注意事项
+
+## 注意事项
 
 - 4.4 以上解码Bitmap 要使用decodeStream, 同时给decodeStream的文件流是BufferedInputStream(可以根据文件大小指定恰当的大小，避免浪费)，decodeFile是fileinputstream
 
@@ -6223,7 +6371,7 @@ static jobject nativeDecodeStream(JNIEnv* env, jobject clazz, jobject is, jbyteA
 
 ```
 
-
+native使用示例：
 ```cpp
 extern "C"  
 JNIEXPORT jstring JNICALL  
@@ -6248,7 +6396,56 @@ Java_com_example_flu_MainActivity_loadBitmap(JNIEnv *env, jobject thiz, jobject 
 
 ```
 ## bitmap的复用
-主要指的是复用native内存块。4.4之前复用只能使用相同大小的bitmap内存区域，4.4之后只要比将要分配的内存大就可以复用。此处最好用LRUcache来复用。
+源码上：主要指的是复用native内存块。==4.4之前复用只能使用相同大小的bitmap内存区域，4.4之后只要比将要分配的内存大就可以复用==。我们在应用层==最好用LRUcache来复用==。
+
+### 通过Drawable缓存
+我们通过drawable来加载本地图片，bitmap内部native解码使用启动缓存bitmap
+
+```java
+new BitmapDrawable(resoure, bitmap)
+```
+### 通过inBitmap 
+通过设置option.inBitmap = true，他可以复用native中的bitmap
+```java
+val option = BitmapFactory.Options();
+//开启复用！
+option.inMuable = true；
+//设置复用的map！
+option.inBitmap = preloadBitmap;
+
+//复用perloadBitmap
+val newBitmap = BitmapFactory.deccodeStream(filePath, option)
+```
+当然我们最后最好用LRU来存储
+
+```java
+
+int maxMemory = (int) (Runtime.getRuntime().maxMemory() / 1024);
+int cacheSize = maxMemory / 8;
+
+//初始化大小
+LruCache<String, Bitmap> mMemoryCache = new LruCache<String, Bitmap>(cacheSize) {
+    @Override
+    protected int sizeOf(String key, Bitmap bitmap) {
+    //每个的大小
+        return bitmap.getByteCount() / 1024;
+    }
+};
+
+```
+
+## 使用注意事项
+- 当activity退出的时候，一定要回收Bitmap.recyler。
+- 创建bitmap时，根据可能会出现的大小进行==try..catch避免oom的crash==
+
+当使用Bitmap加载过大的图片时，可能会导致OutOfMemoryError（OOM）错误。原因主要有以下几点：
+
+1. 内存限制：尤其在移动设备（比如Android或iOS）上，每个应用的运行内存是有限的。操作系统针对每个应用分配了一定的内存上限，以保证其他应用的正常运行。应用加载过大的Bitmap时，需要申请的内存空间可能超过了应用所允许的最大内存限制，从而引发OOM。
+    
+2. 图片解码：当加载一张图片时，操作系统需要将其从文件系统中读取，然后解码成Bitmap数据。解码后的图片会以非压缩形式的数据存储在内存中，这意味着一张原始大小为2MB的图片解码后可能占用10MB或更多的内存。因此，==当一张图片尺寸过大时，解码后的Bitmap在内存中消耗的资源也会显著增加，可能导致内存不足并触发OOM。==
+    
+3. 内存碎片：内存碎片是由于程序长时间运行和反复的内存申请释放操作而产生的空间碎片。当加载大型Bitmap时，如果内存碎片太多，可用的连续内存区域可能不足以容纳全新的Bitmap，即便总的可用内存空间还有剩余，也会出现OOM。
+
 # 44.启动优化
 
 **启动模式：**
@@ -6347,7 +6544,7 @@ adb shell am start -S -W [packageName]/[activityName]
     }
 ```
 
-在启动页的activity中添加stopMethodTracing
+在启动页的Activity中添加stopMethodTracing
 
 ```java
 @Override 
@@ -6363,6 +6560,12 @@ public void onWindowFocusChanged(boolean hasFocus) {
 
 //例：初始化application的时候使用了sp进行io
 
+
+## SplashActivity和MainActivity合二为一
+
+
+
+
 # 45.热修复
 
 相关：[[#52.插件化]]
@@ -6373,9 +6576,15 @@ android类加载机制：Android的类加载和Java的类加载比较类似，�
 - PathClassLoader 和 DexClassLoader **都能加载外部的 dex／apk**，只不过区别是 DexClassLoader 可以**指定 optimizedDirectory**，也就是 dex2oat 的产物 .odex 存放的位置，
 - 而 PathClassLoader 只能使用系统默认位置。但是这个 optimizedDirectory 在 Android 8.0 以后也被舍弃了，只能使用系统默认的位置了。
 
-链接：https://juejin.cn/post/6844903508865449991
-来源：稀土掘金
+对于Dex修复这种方案，基本上可以按照以下步骤：
 
+1. 对比原始 dex 文件和新的 dex 文件，合并生成一个差分包（这个差分包包含修复后的类信息）。
+2. 在应用程序运行时，下载差分包并将其放在合适的位置，例如 data/data/应用程序包名/files/dex 目录下。
+3. ==重启应用程序时==，使用特定的类加载器（如DexClassLoader）读取差分包中的dex文件，并将合并后的类替换原有的类。
+
+但是需要注意的是，热修复对于运行时错误（由于特定的运行环境导致的问题）可能效果有限。另外这种方法可能会受到Android版本和系统限制的影响，适用性可能会受限。许多第三方库（如Tinker、AndFix和Sophix）和一些开源项目提供了更为成熟、可靠的热修复方案。
+
+还会带来一个问题就是，==跳过了oat/odex的优化，所以其实也是会降低效率的。==（因为不加载优化过的odex/oat文件而是加载合并后fix过的dex的文件）
 
 推荐
 
@@ -6397,15 +6606,29 @@ android类加载机制：Android的类加载和Java的类加载比较类似，�
 ![[e3a6234eb5a639f91db1e52ea5827aa0~tplv-t2oaga2asx-zoom-in-crop-mark 3024 0 0 0.webp]]
 
 
-预检验问题是app安装时会存在dex opt操作变成odex文件（优化dex的操作）
+==预检验问题是app安装时会存在dex opt操作变成odex文件==（优化dex的操作）
 
-当**某一个类所有的构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候**，这个类就会被打上**class_ispreverified**标签。所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误。
+当==**某一个类所有的构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候**，这个类就会被打上**class_ispreverified**标签。==所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误。
 
 
 解决的思路是当这些类已经被编译完成之后，在**字节码的层面去注入一些来自于其他dex的类**,也就是**插桩**。[[#54. 字节码插桩]]
 
+
+  
+
 Android的gradle插件也提供了这样的一些接口，叫做Transform的API。这个API会提供一个调用的时机，当代码文件被编译成JAR但是还没有被打成dex的时候，提供了在这个时期做一些事情的接口。
 正是利用这个接口，当拿到编译完成的字节码文件之后，可以对其进行字节码的注入，进行所谓的插桩，插入一些来自于其他dex文件的类，这样当App再被安装并执行dex    opt过程的时候就不会再被打上预校验的标签
+
+### 如何防止我们源代码中所有的类被打上CLASS_ISPPREVERIFIED标记？
+
+> 理论上，一个android工程中所有的java类（除了Application之外）都有可能需要热修复。如果让这些类都去引用一个另一个dex文件中的Class，就能防止在dex进行oat的时候被打上CLASS_ISPPREVERIFIED标记。  
+> 但是这样有一个弊端，就是 CLASS_ISPPREVERIFIED带来的性能提升将会消失。但是既然出现bug，要解决，总要付出一点代价。
+
+> 2.1:创建一个空白java类 AntilazyLoad。编译它，得到 AntilazyLoad.class 然后用dx命令，将它打包成hack.dex
+
+> 2.2:使用gradle插桩的方式，干涉gradle打包流程，==注册自定义transform(执行时机是在生成javac命令之后，在dx命令之前)获取所有经过编译的class文件==，在其构造函数中加上 AntilazyLoad 的直接使用(反射引用是不行的)。
+
+我们的思路是 在java变成class之后，在class变成 dex之前，将class进行ASM插桩。所以，我们要找的 gradle task 是 ： transformClassesWithDexBuilderForRelease 或者 transformClassesWithDexBuilderForDebug 给它重写doFirst。 也可以 找到 gradle task ： compileReleaseJavaWithJavac 或者 compileDebugJavaWithJavac. 给它重写 doLast。效果相同。
 
 
 
@@ -6438,7 +6661,7 @@ b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
 来源链接：https://juejin.cn/post/6844903508865449991
 
 ## 3、Tinker-- 腾讯-微信
-
+比起之前的合并，而是==差量的方式给出patch.dex==，（将出现bug的apk包和修复后的apk包做对比）然后将patch.dex与应用的classes.dex合并，然后==整体替换掉旧的DEX==，达到修复的目的。
 也就是instant  run方案：
 1. 支持类替换、So 替换，资源替换是采用类似 instant-run 的方案
 2. 补丁包较小，自研 diff 方案，下发的是差量包，包括的是变更的内容
@@ -6501,11 +6724,21 @@ b. 在App刚开始启动的时候，Instant Run会做以下三件事情：
 ## 对比表格
 ![[hot_fix.jpg]]
 ![[3769423-a02b417960bd228e.webp]]
+
+## Class文件转Dex文件
+
+- 在AS build -> javac 文件中拷贝class 文件。
+    
+    ![](http://popus6lor.bkt.clouddn.com/Image%201.png)
+    
+- 在sdk 根目录下，有一个build-tools目录随便点击进入一个版本，其中有一个dx.bat文件，就是转dex 文件的脚本，命令格式：dx --dex --output=out.dex 当前class所在目录。
 # 46.JETPACK--ROOM
 
 JETPACK
 # 47.Kotlin特性、编译、协程
 ## 基础
+Kotlin编译器不会将Kotlin代码编译成Java代码。相反，它将Kotlin代码编译成Java虚拟机（JVM）==可以理解的字节码==。这意味着Kotlin代码可以与Java代码无缝交互，并且可以在JVM上运行。Kotlin编译器的编译过程包括以下步骤：词法分析、语法分析、语义分析和中间代码生成，以及目标代码生成
+
 ### 修饰符
 - `public`修饰符表示 _公有_ 。此修饰符的范围最大。当不声明任何修饰符时，系统会默认使用此修饰符。
 - `internal`修饰符表示 _模块_ 。对于`模块`的范围在下面会说明。
@@ -6546,11 +6779,11 @@ with(CLASS){ return xxx; }
 
 ## 1, 三个启动函数
 
-lanch，sync， runBlocking
+lanch，async， runBlocking
+- lanch：我们启动一个协程就会返回一个Job类型，可以通过该job类型进行协程的协程调用，比如job.join()类似Thread的thread.join(), 等待该内容执行完
 
-
-
-Deferred是Java中Future的一种类似物：in封装了一个操作，该操作将在初始化后的某个时候完成。但也与Kotlin中的协程有关。
+- async：返回的是Deferred
+Deferred是Java中Future的一种类似物：in封装了一个操作，该操作将在初始化后的某个时候完成。但也与Kotlin中的协程有关。async.await()来挂起当前协程，等待async中的内容执行完。
 
 从文档：
 
@@ -6560,7 +6793,7 @@ Deferred是Java中Future的一种类似物：in封装了一个操作，该操作
 
 ## 2、suspend函数
 
-协程代码块内必须是挂起函数，可以携带除了上列启动函数歪，还可以使用withContext执行线程切换
+协程代码块内必须是挂起函数，可以携带除了上列启动函数外，还可以使用withContext执行线程切换
 
 
 
@@ -6576,7 +6809,7 @@ suspend koltin编译过程（cps过程）
 
 同一个协程作用域中的异步任务遵守顺序原则开始执行; 适用于串行网络请求, 在一个异步任务需要上个异步任务的结果时.
 
-协程挂起需要时间, 所以异步协程永远比同步代码执行慢
+==协程挂起需要时间, 所以异步协程永远比同步代码执行慢==
 
 ```kotlin
 fun main() = runBlocking<Unit> {
@@ -6636,9 +6869,9 @@ fun main() = runBlocking<Unit> {
 
    ## 4. 协程间的通信
 
-   协程与协程间不能直接通过变量来访问数据，会导致数据原子性的问题，所以协程提供了一套`Channel`机制来在协程间传递数据。
+   协程与协程间不能直接通过变量来访问数据，会导致数据原子性的问题，所以协程提供了一套==Channel==机制来在协程间传递数据。
 
-   Channel 是一个和 `BlockingQueue` 非常相似的概念。其中一个不同是它代替了阻塞的 `put` 操作并提供了挂起的 `send`，还替代了阻塞的 `take` 操作并提供了挂起的 `receive`。
+   Channel 是一个和 ==BlockingQueue==非常相似的概念。其中一个不同是它代替了阻塞的 put 操作并提供了挂起的 send，还替代了阻塞的 take`操作并提供了挂起的 receive。
 
    `Channel`发送和接收操作是 公平的 并且尊重调用它们的多个协程。它们遵守先进先出原则，可以看到第一个协程调用 receive 并得到了元素
 
@@ -6660,20 +6893,30 @@ fun main() = runBlocking<Unit> {
    }
    ```
 
-   当发送完毕后，记得调用`channel.close()`，`close()`操作就像向通道发送了一个特殊的关闭指令。 这个迭代停止就说明关闭指令已经被接收了。所以这里保证所有先前发送出去的元素都在通道关闭前被接收到。
+   当发送完毕后，记得调用==channel.close()==，==close()==操作就像向通道发送了一个特殊的关闭指令。 这个迭代停止就说明关闭指令已经被接收了。所以这里保证所有先前发送出去的元素都在通道关闭前被接收到。当然你不关闭，要继续发送也可以，mvi模式的通信就是基于channel。
 
 
-## 线程的实现原理
+## 协程的实现原理
+### 协程的主要构成是：
+1. 挂起函数suspend，由编译器支持的挂起函数，其实就是一个标识，该函数可以在不阻塞线程的情况下挂起，他是可以暂停的，直到恢复再重新继续运行。实际上挂起函数类型最后编译结果传入Continuation类进行状态控制。
+2. 协程构建器，我们调用协程的启动函数==async，lanch，runBlocking时，是把代码块封装在suspend类型的lambda表达式内==，用于后续调度。
+3. 协程的作用域CoroutineScope，代表该协程是属于的范围，==可以理解为一个管理器，管理加进来的协程==，同一作用域内的协程的生命周期会受CoroutineScope影响。
+4. CoroutineContext，创建的每个协程内都会有一个该上下文，主要就是存储携程的job，**CoroutineDispatcher**，协程名，**CoroutineExceptionHandler**（错误处理器，如果异常没处理会调用该处理器，如果设置了的话）
+5. CoroutineDispatcher， 也就是线程调度器，和rxjava一样，Dispatcher.IO时是在维护的线程池中运行，当然前提是withCotext的时候传入的是Dispatcher.IO，才会使用线程池，不然就处理其他的线程逻辑，如 Main，newThread，newSingleThread之类的。
 
 这里先总结出Kotlin协程在执行过程中会出现的一些概念，避免在后续源码分析中出现混淆：
 
 - 协程体：协程中要执行的操作，它是一个被suspend修饰的lambda 表达式;
-- 协程体类:编译器会将协程体编译成封装协程体操作的匿名内部类;
-- 协程构建器:用于构建协程的函数，比如launch，async;
-- 挂起函数:由suspend修饰的函数，挂起函数只能在挂起函数或者协程体中被调用,可以在挂起函数中调用其它挂起函数实现不阻塞当前执行线程的线程切换，比如withContext()，但挂起函数并不一定会挂起，如果没有执行挂起操作;
+- 协程体类:  编译器会将协程体编译成封装协程体操作的匿名内部类;==即Continuation状态机控制==
+- 协程构建器:  用于构建协程的函数，比如launch，async;
+- 挂起函数:  由suspend修饰的函数，挂起函数只能在挂起函数或者协程体中被调用,可以在挂起函数中调用其它挂起函数实现不阻塞当前执行线程的线程切换，比如withContext()，但挂起函数并不一定会挂起，如果没有执行挂起操作;
 - 挂起点：一般对应挂起函数被调用的位置;
-- 续体:续体的换概念可以理解为挂起后，协程体中剩余要执行代码，笔者在文章中，将其看作为协程体类，在协程体类中封装了协程的要执行的操作，由状态机的状态将操作分割了成不同的片段，每一个状态对应不同代码片段的执行，可以与续体的概念对应。
+- 续体:   续体的换概念可以理解为挂起后，协程体中剩余要执行代码，笔者在文章中，将其看作为协程体类，在协程体类中封装了协程的要执行的操作，由状态机的状态将操作分割了成不同的片段，每一个状态对应不同代码片段的执行，可以与续体的概念对应。
 
+### 挂起/恢复/调度的原理
+Kotlin 协程的挂起和恢复由==编译器和协程库共同处理==。编译器将==挂起函数转换为状态机==，以便在运行时轻松地暂停和恢复；协程库负责在需要时恢复协程的执行。==这种设计使得协程可以无需阻塞底层线程并高效地进行异步编程。==
+
+协程不用跟线程一切换线程上下文，他的协程的数据是用户态上，不切换线程也就是不用内核态和用户态之间切换，只是在用户层面用==Dispatcher调度器模拟了线程的调度和异步效果==。
 
 # 48.JETPACK--Navigation
 
@@ -6811,9 +7054,9 @@ class Cook{
 网络：internet socket 
 系统间：Unix Domian SOCKET
 
-两次拷贝，c/s安全性不可靠，身份不可靠、
+实际上还是==内核空间通信，拷贝到内核空间的写入数据缓冲区，内核空间输出缓冲区再复制到对应的用户空间。==
+==两次拷贝==，c/s安全性不可靠由上层自己控制，控制不好就会导致身份不可靠、
 
-两次拷贝
 
 ## 4. 管道机制
 Handler  采用的管道通信[[#线程阻塞和唤醒/nativePollOnce和wake()]]
@@ -6938,7 +7181,7 @@ public class MessengerService extends Service {
 
 启动时机：[[#ServiceManager]]
 binder是linux内核的一个重要驱动，是Android系统上核心的进程通信方式，系统进程初始化时的通信，intent数据，ams与acitviy，wms与window，windowmanager通信都是通过Binder机制。
-**实现原理是通过内存映射mmap进行的，实现一次拷贝, 基于C/S架构安全稳定。内核添加了PID身份识别**
+**实现原理是通过内存映射mmap进行的，实现一次拷贝, 基于C/S架构安全稳定。==内核添加了PID身份识别**==
 
 ![[截图20230818021308.png]]
 
@@ -6947,6 +7190,11 @@ binder是linux内核的一个重要驱动，是Android系统上核心的进程�
 
 ![[截图20230817200243.png]]
 
+
+为什么设计成驱动的形式？
+第一点是为了程序源码和Binder分离，不用关心Bidner内部的的资源分配和实现。
+第二点主要是为了方便调用，不同代码的都可以调用Binder虚拟驱动。
+
 ### ProcessState的初始化
 
 ProcessState的主要关键点有以下几个：
@@ -6954,6 +7202,7 @@ ProcessState的主要关键点有以下几个：
 - 保证同一进程只有一个ProcessState实例，且只有在ProcessState对象建立时才打开Binder设备以及做内存映射
 - 向上层提供IPc服务
 - 与IPCThreadState分工
+- 其实ProcessState还是顾名思义是查看进程状态的，IPCThreadState才是transact进行Binder通信的地方
 
 
 我们先来分析main中的第一步，也就是ProcessState::self()的过程。
@@ -6985,7 +7234,8 @@ ProcessState的主要关键点有以下几个：
     mThreadPoolSeq(1) {
 	    if (mDriverFD >= 0) {
 	    
-	    //映射内存
+	    //映射内存，返回的是首地址
+	    //mDriverFD 驱动文件的文件描述符
 	    mVMStart = mmap(0, BINDER_VM_SIZE, PROT_READ, MAP_PRIVATE | MAP_NORESERVE, mDriverFD, 0);
 	    if (mVMStart == MAP_FAILED) {
 		    close(mDriverFD);
@@ -7324,6 +7574,7 @@ HTTP/1.1 206 Partial Content
 [[#45.热修复]]
 [[#19.ARoute和组件化]]
 [[#换肤框架]]
+[[#dex加載流程]]]
 
 
 ![[v2-1712eb8d789f4aff59a805f4a641aa55_720w.webp]]
@@ -7407,6 +7658,8 @@ fun loadPlugin(context:Context){
 	##### 代理模式（DL框架）
 
 ProxyActivity + 插件中没注册的Activity = 标准的Activity
+其实就是通过proxyActivtiy对应的生命周期反射初始化、执行真实的activity的对应生命周期。
+这样完全依赖于代理activity。
 
 ![](https://upload-images.jianshu.io/upload_images/8623410-3fe0083075551219.png?imageMogr2/auto-orient/strip|imageView2/2/w/667/format/webp)
 ### 解决⽅式⼆：欺骗系统
@@ -7661,22 +7914,53 @@ Transform是Gradle的一个类似拦截器的功能，可以获取上一个Trans
 
 	红色：“执行时间”，指的是Android渲染引擎执行盒子中这些绘制命令的时间
 	黄色： 指的是CPU和GPU会话时间
-	蓝色： 视图绘制所花费的时间，表示视图在界面发生变化（更新）的用时情况
+	蓝色： 视图绘制（draw）所花费的时间，表示视图在界面发生变化（更新）的用时情况
 		当蓝色低于绿线时不会出现卡顿
+	绿色：测量和布局的回调时间。
+![[20201112115239934.webp]]
+
+### 过度重绘
+
+检查过度绘制
+
+过度绘制工具可以帮助开发者检查是否进行了不必要的渲染工作。该工具使用颜色来标识过度绘制，当应用在同一帧内多次绘制同一像素时，就表明发生过度绘制，并使用不同的颜色进行标记。过度绘制表明GPU付出了额外的工作来渲染用户看不见的像素，这样会影响性能，应该尽可能修复。
+
+过度绘制工具可以在开发者选项中打开，设置->开发者选项->调试GPU过度绘制。打开工具后，应用中如果发生过度绘制，会表现类似下图。
+![[e6b859275b9b0504df33e1b61fb5dcd8.png]]
+
+图中的不同颜色表示像素在一帧内重绘的次数，
+
+- 真实颜色：未发生重绘。
+- 蓝色：重绘1次。
+- 绿色：重绘2次。
+- 粉色：重绘3次。
+- 红色：重绘4次以及4次以上。
+
+避免重绘：
+	除了我们可能逻辑上调用的重绘
+	- viewtree过深
+	- 去除布局中不必要的背景。（比如小控件和主页面背景色一致的情况）
+	- 少使用半透明颜色，如果是颜色叠加的效果，那么颜色叠加直接使用最终效果的颜色即可。
 ### Systrace分析
 Systrace 是 Android4.1 中新增的性能数据采样和分析工具。它可帮助开发者收集 Android 关键子系统（如 SurfaceFlinger/SystemServer/Kernel/Input/Display 等 Framework 部分关键模块、服务，View系统等）的运行信息，从而帮助开发者更直观的分析系统瓶颈，改进性能。
 
-Systrace 的功能包括跟踪系统的 I/O 操作、内核工作队列、CPU 负载以及 Android 各个子系统的运行状况等。
-
+Systrace 的功能包括跟踪系统的 I/O 操作、内核工作队列、CPU 负载以及 Android 各个子系统的运行状况等。CPU频率等都可以看到。
+可以通过命令行操作，或者是开发者选项中设置即可。
+这里只讲开发者中设置。设置完毕后。点击开始记录trace，复现问题，然后点击关闭trace，这样trace 文件就会保存在`/data/local/traces`目录下，然后pull 出来 。
+导出的***.cstrace文件可以通过perfetto网站：https://ui.perfetto.dev/，点击 open with legacy UI打开
+![[截图20230903180810.png]]
 ### android studio profiler 性能分析
+android studio上的仪表盘。该不会还有人没用过吧？
+分析资源情况和内存情况。
 
 ### 参考了ANR-WatchDog机制**
 
-ANR-WatchDog机制原理不复杂，**它内部启动了一个子线程，定时通过主线程Handler发送Message，然后定时去检查Message的处理结果。**
+ANR-WatchDog机制原理不复杂，**它内部启动了一个子线程，定时通过主线程Handler发送Message，然后定时去检查Message的处理结果。**（messageQueue取出消息后，会给message打上标签 -> msg.markInUse();）
 
 通俗来说就是利用了Android系统MessageQueue队列的排队处理特性。
 
 通过**主线程Handler发送消息到MessageQueue队列**，**5秒去看下这个Message有没有被消费**如果消费了则代表没有卡顿，如果没有，则代表有卡顿，当然这个5秒是可调节的。
+
 
 这种监控非常简单，接入成本较低，但是有弊端，比如
 
@@ -7686,7 +7970,7 @@ ANR-WatchDog机制原理不复杂，**它内部启动了一个子线程，定时
 
 ### **参考BlockCanary开源库，利用Looper.loop() Printer打印机制**
 
-每次Message处理(也就是dispatchMessage(msg))都会在处理前，和处理后通过Looper.mLogging打印日志。
+每次Message处理(也就是dispatchMessage(msg))都会在==处理前，和处理后通过Looper.mLogging打印日志。==
 ```java
 //Looper取消息的接口
 Looper.getMainLooper().setMessageLogging(CustomPrinter())
@@ -7852,12 +8136,12 @@ JNI引用的对象。
 
 #### 6.资源没有正确释放
 
-比如数据库链接，Bitmap，stream对象，音频资源等等。
-webview。
+比如==数据库链接，Bitmap，stream对象，音频资源==等等。
+==webview。==
 
 Bitmap可以采用第三方框架来管理。
 
-weiview记得destroy的时候，stoploading，调用onPause，clearCache，removeallviews, destroy等等。
+==weiview记得destroy的时候，stoploading，调用onPause，clearCache，removeallviews, destroy等等。==
 
 ## 监视工具
 1. as 的Profile
@@ -7880,7 +8164,7 @@ weiview记得destroy的时候，stoploading，调用onPause，clearCache，remov
 	- MemGuard
     
     检测堆内存访问越界、使用释放后的内存、重复释放等问题
-Android dump日志详解
+## Android dump日志详解
 简介
 
 在Android开发过程中，我们经常会遇到一些难以调试的问题，比如应用崩溃、内存泄漏等。为了解决这些问题，我们需要收集相关的调试信息。Android系统提供了一种称为dump log的机制，可以帮助我们收集与应用有关的日志信息。本文将介绍Android dump日志的原理、用法及示例代码。
@@ -7910,18 +8194,15 @@ public class MyApplication extends Application {
 值得一提的是，除了Debug.dumpHprofData()方法，Android还提供了其他一些dump方法，如Debug.dumpMemoryInfo()用于输出内存信息、Debug.dumpNativeBacktrace()用于输出Native层的堆栈信息等。根据实际需求，我们可以选择适合的方法进行调用。
 分析dump日志
 
-一旦日志文件生成，我们就可以使用各种工具对其进行分析了。Android Studio提供了一个名为Android Profiler的工具，可以方便地查看和分析dump日志。
+一旦日志文件生成，我们就可以使用各种工具对其进行分析了。==Android Studio提供了一个名为Android Profiler的工具，可以方便地查看和分析dump日志。==
 
-首先，我们需要将日志文件导入到Android Studio中。在Android Profiler界面的左下角，点击Import HProf按钮，选择日志文件进行导入。导入后，我们可以在Memory选项卡中查看堆栈信息、内存使用情况等。
+首先，我们需要将日志文件导入到Android Studio中。在Android Profiler界面的左下角，点击Import HProf按钮，==选择日志文件进行导入==。导入后，我们可以在Memory选项卡中查看堆栈信息、内存使用情况等。
 
 另外，还可以使用一些第三方工具进行分析，比如MAT（Memory Analyzer Tool）。该工具可以帮助我们更深入地分析dump日志，找出应用中的内存泄漏等问题。
 总结
 
 通过使用Android的dump日志功能，我们可以收集应用的调试信息，帮助我们定位和解决问题。本文介绍了如何使用dump日志功能，并提供了示例代码。希望本文对你理解和使用Android dump日志有所帮助。
------------------------------------
-©著作权归作者所有：来自51CTO博客作者mob649e8158a948的原创作品，请联系作者获取转载授权，否则将追究法律责任
-解决Android dump日志的具体操作步骤
-https://blog.51cto.com/u_16175451/6650442
+
 # 57. NDK开发
 
 这本来应该是个大章节独立一个md文档出来的，但是这里只介绍基础和核心的部分。
@@ -7971,7 +8252,8 @@ static{
 ```
 当Java层调用navtie函数时，会在JNI库中根据函数名查找对应的JNI函数。如果没找到，会报错。**如果找到了，则会在native函数与JNI函数之间建立关联关系，其实就是保存JNI函数的函数指针。下次再调用native函数，就可以直接使用这个函数指针。**
 
-JNI函数名格式（包名里面的”.”需要改为”_”）： Java_ + 包名（com_example_auto_jnitest）+ 类名(_MainActivity) + 函数名(_stringFromJNI)
+JNI函数名格式（包名里面的”.”需要改为 _ ）
+Java_ + 包名（com_example_auto_jnitest）+ 类名(_MainActivity) + 函数名(_stringFromJNI)
 
 
 ### 动态注册
@@ -8082,8 +8364,6 @@ jint JNI_OnLoad(JavaVM *vm, void *reserved) {
     }
 }
  
- 
- 
 ```
 
 ## 交叉编译
@@ -8153,12 +8433,54 @@ findLibrary() 将到 ClassLoader 中查找 lib，取决于各 JVM 的具体实�
 Android.mk是一个GNU Makefile文件，用于管理一个或多个模块（Module）的编译。每个模块通常都由一组源文件组成，可以是代码文件（.c、.cpp等）或者资源文件（.xml、.png等）。所有的源文件都会被编译成为一个可执行的二进制文件或者APK文件。
 
 在Android系统中，Android.mk文件通常是用来编译的，它描述了每个模块的依赖关系以及编译选项。
+Android.mk 和 Application.mk 不是一样的。它们都是 Android 应用构建系统 (Android NDK) 中的 Makefile 文件，但它们具有不同的目的和组成部分。
+
+1. Android.mk：这个文件用于编译==一个具体的本地模块==。它为构建系统提供如何==编译源代码、链接和组合库文件==等信息。当你需要同时为一个项目编译多个模块时，你可能需要分别为活动源代码文件夹编写多个 Android.mk 文件。通常 Android.mk 包含有：
+  - LOCAL_PATH: 指定源码所在的路径。
+  - LOCAL_MODULE: 指定输出的模块。
+  - LOCAL_SRC_FILES: 指定源代码文件。
+  - LOCAL_CFLAGS: 指定 C 编译器标志。
+  - LOCAL_LDFLAGS: 指定链接器标志。
+  等相关指令和变量。
+
+2. Application.mk：这个文件定义了==整个应用的全局特性==。通常情况下，一个项目只需要使用一个 Application.mk 文件。这个文件用于控制构建配置和属性，例如如何编译本地库、平台兼容性等。这些设置会应用到整个项目中的所有 Android.mk 文件。一些 Application.mk 文件的设置包括：
+  - APP_ABI: 指定目标 ABI，例如 armeabi-v7a、arm64-v8a、x86 等。
+  - APP_PLATFORM: 表示构建为哪个 Android 操作系统级别。
+  - APP_STL: 用于选择STL (Standard Template Library) 配置。
+  - APP_MODULES: 指定要构建的模块列表。
+  等相关指令和变量。
+
+总之，虽然 Android.mk 和 Application.mk 都是构建 Android 应用的 Makefile 文件，但它们具有不同的目的，分别为编译具体模块和定义全局特性。
+```makefile
+YourProject
+|-- app
+    |-- src
+    |-- jni
+        |-- cpp
+            |-- a_module
+                |-- Android.mk
+            |-- b_module
+                |-- Android.mk
+        |-- Application.mk
+
+```
+
+
 
 ## java层和ndk层的通信
 ### 1.如何通信
 #### Java调用jni
+
+##### 静态注册
 java中：
 c++中：静态注册的：Java_全限定名类名_方法名
+##### 动态注册
+动态注册的步骤：
+
+1. 利用结构体 JNINativeMethod 数组记录 java 方法与 JNI 函数的对应关系。
+2. 实现 JNI_OnLoad 方法，在加载动态库后，执行动态注册。
+3. 调用 FindClass 方法，获取 java 对象。
+4. 调用 RegisterNatives 方法，传入 java 对象，以及 JNINativeMethod 数组，以及注册数目完成注册。
 
 #### JNI 中调用 Java 方法流程 :​
 
@@ -8178,6 +8500,70 @@ c++中：静态注册的：Java_全限定名类名_方法名
 
 
 来源：https://blog.51cto.com/u_14202100/5084702
+
+##### 实例：
+native调用jni反射
+
+```java
+//要被调用的类
+public class Stext{  
+    public String laila(String test){  
+        Log.d("", test);  
+        return "Stext java层的,这是native传来的：" + test;  
+    }  
+  
+}
+```
+
+```kotlin
+
+//native方法
+external fun stringFromJNI(): String  
+  
+companion object {  
+    // Used to load the 'nativeapplication' library on application startup.  
+    init {  
+        System.loadLibrary("nativeapplication")  
+    }  
+}
+
+
+```
+
+```cpp
+//函数签名：参数 + 返回值  
+static const char *signature = "(Ljava/lang/String;)Ljava/lang/String;";  
+  
+  
+//反射运行class文件  
+extern "C" JNIEXPORT jstring JNICALL  
+Java_com_shay_nativeapplication_MainActivity_stringFromJNI(  
+        JNIEnv* env,  
+        jobject /* this */) {  
+    std::string hello = " C++操作";  
+  
+    std::string result =  hello.append("back to JAVA!!!");  
+    //获取Stext类信息  
+    jclass  jclass1 = env->FindClass("com/shay/nativeapplication/Stext");  
+    if(jclass1 == nullptr){  
+        return env->NewStringUTF("error no found class");  
+    }  
+    //获取‘laila‘方法信息  
+    jmethodID  methodId = env->GetMethodID(jclass1, "laila", signature);  
+  
+    //构造函数创建对象  
+    jmethodID constructor = env->GetMethodID(jclass1, "<init>", "()V");  
+    jobject stext_obj = env->NewObject(jclass1, constructor);  
+  
+    //调用java函数  
+    jstring params = env->NewStringUTF(result.c_str());  
+    jstring  stirng = static_cast<jstring>(env->CallObjectMethod(stext_obj, methodId, params));  
+    env->DeleteLocalRef(stext_obj);  
+    return stirng;  
+}
+
+```
+
 
 #### Native日志分析方式：
 
@@ -8221,6 +8607,8 @@ JNIEnv 作用：
     调用Java构造方法创建Java对象等。
 
 ### JNI引用
+在JNI中，Java对象引用可以分为==本地引用（Local reference）==和==全局引用（Global reference）==。本地引用在本地范围（如一个JNI函数调用或一个线程）中有效，而全局引用可以在多个范围中使用。
+
 #### I . 全局引用
 
 
@@ -8233,7 +8621,7 @@ JNIEnv 作用：
 
 ​时间 :​ 创建后可以使用 , 手动释放后全局引用失效 ; ( 手动释放前全局可用 )
 
-
+	env->DeleteGlobalRef()
 
 ​##### 2 . 全局引用 内存回收 :​ 全局引用 与 局部引用 均不会被 JVM 自动回收 , 如果内存不足 , JVM 宁可抛出 OOM 异常 , 也不会回收这些内存 ;
 
@@ -8247,19 +8635,46 @@ JNIEnv 作用：
 
 ​② 释放全局引用 :​ DeleteGlobalRef ;
 
+#### 本地引用
+==JNI代码创建或使用一个Java对象时==，引用计数器将始终保持在一个较高的水平。在某些情况下，如果JNI代码生成了大量的本地引用而没有及时释放，这将导致内存泄漏问题。
+	例如：jobject stext_obj = env->NewObject( ******)
+为了防止内存泄漏，可以在JNI代码中使用`DeleteLocalRef`来显式回收本地引用，释放相关资源。
+
+这是一个示范如何使用`DeleteLocalRef`的例子：
+
+```java
+JNIEXPORT void JNICALL Java_com_example_NativeClass_nativeMethod(JNIEnv *env, jclass clazz) {
+    // 创建一个Java对象
+    jobject obj = (*env)->NewObject(env, clazz, methodID);
+    
+    // 在这里你可以使用该Java对象完成所需的任务
+
+    // 任务完成后，用DeleteLocalRef回收本地引用，释放资源
+    (*env)->DeleteLocalRef(env, obj);
+}
+```
+针对这些情况，我们除了手动释放以外，还可以模拟智能指针来自动释放。
 
 
 # SurfaceView, Surface, SurfaceHolder
-
+![[94ebc5e484c2ab5ffaffe842a2bc199d.png]]
 - Surface  
-    Handle onto a raw buffer that is being managed by the screen compositor。即Surface是保存原始缓存区的句柄，也就是显示的像素数据
+    Handle onto a raw buffer that is being managed by the screen compositor。
+    即Surface是保存原始缓存区的句柄，也就是显示的像素数据
 - SurfaceView  
     SurfaceView是视图(View)的继承类，这个视图里内嵌了一个专门用于绘制的Surface。你可以控制这个Surface的格式和尺寸。Surfaceview控制这个Surface的绘制位置。我们绘制view不用依赖于view的刷新机制，可以直接执行渲染。
 
 为什么要设计surfaceView？
 答：**当渲染的缓冲数据来自外部的其它系统服务或API时——比如系统媒体解码器的音视频数据，或者 Camera API 的相机数据等，这时 UI 渲染的效率要求会变得非常高。**
-开发者有了新的诉求：能否有这样一种特殊的视图，它拥有独立的 Surface ，这样就可以脱离现有 Activity 宿主的限制，在一个独立的线程中进行绘制。
-**由于该视图不会占用主线程资源，一方面可以实现复杂而高效的 UI 渲染，另一方面可以及时响应用户其它输入事件。**
+**开发者有了新的诉求** ：能否有这样一种特殊的视图，它拥有独立的 Surface ，这样就可以脱离现有 Activity 宿主的限制，==在一个独立的线程中进行绘制==。
+**由于该视图==不会占用主线程资源==，一方面可以实现复杂而高效的 UI 渲染，另一方面可以及时响应用户其它输入事件。**
+
+Surfaceview低于宿主界面？
+宿主一般是上层，一般window是一个surface，其中的view都是使用这个surface。
+用来描述 `SurfaceView` 的 `Layer` 或者 `LayerBuffer` 的 `z` 轴位置默认是低于宿主窗口的。与此同时，为了便于最底层的视图可见， `SurfaceView` 在宿主 `Activity` 的窗口上设置了一块透明区域（**挖了一个洞**）。
+最终，`SurfaceFlinger` 把所有的 `Layer` 通过用统一流程来绘制和合成对应的 `UI`。
+
+
 
 ## GLSurfaceView和OpenGL
 
@@ -8292,7 +8707,8 @@ ArrayMap的Key和Value同HashMap一样都可以存放多种类型，ArrayMap对�
 	2. Map中包含子Map对象
 ### ArrayMap和HashMap的区别？
 
-ArrayMap的存在是为了解决HashMap占用内存大的问题，它内部使用了一个int数组用来存储元素的hashcode，使用了一个Object数组用来存储元素，两者根据索引对应形成key-value结构，这样就不用像HashMap那样需要额外的创建Entry对象来存储，减少了内存占用。但是在数据量比较大时，ArrayMap的性能就会远低于HashMap，因为 ArrayMap基于二分查找算法来查找元素的，并且数组的插入操作如果不是末尾的话需要挪动数组元素，效率较低。
+==ArrayMap的存在是为了解决HashMap占用内存大的问题==，它内部使用了一个==int数组用来存储元素的hashcode==，使用了一个Object数组用来存储元素，==两者根据索引对应形成key-value结构==，这样就不用像HashMap那样需要额外的创建Entry对象来存储，减少了内存占用。但是在==数据量比较大时，ArrayMap的性能就会远低于HashMap==，因为 ArrayMap基于二分查找算法来查找元素的，并且数组的插入操作如果不是末尾的话需要挪动数组元素，效率较低。
+
 而HashMap内部基于数组+单向链表+红黑树实现，也是key-value结构， 正如刚才提到的，HashMap每put一个元素都需要创建一个Entry来存放元素，导致它的内存占用会比较大，但是在大数据量的时候，因为HashMap中当出现冲突时，冲突的数据量大于8，就会从单向链表转换成红黑树，而红黑树的插入、删除、查找的时间复杂度为O(logn),相对于ArrayMap的数组而言在插入和删除操作上要快不少，所以数据量上百的情况下，使用HashMap会有更高的效率。
 
 ### ArrayMap和SparseArray
@@ -8304,3 +8720,11 @@ ArrayMap的存在是为了解决HashMap占用内存大的问题，它内部使�
 
 
 [相关文档-锁机制](锁.md5)
+
+
+# Android开源库说明
+
+主要由 davilk、art虚拟机-Framework-Linux内核-第三方开源库（OpenGL，SQLITE）-device虚拟设备库-hardware硬件抽象库。
+
+此后要扩展到Framwork开发，ROM定制，HAL开发，图像渲染开发，或者音视频开发。祝你好运。
+（当然该Android文档会继续更新Android开发细分领域之外的内容）
