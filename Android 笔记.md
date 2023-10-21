@@ -83,9 +83,9 @@ ower Management:电量管理驱动）等
 相关扩展：[[#2.2.2 activity启动流程]]
 
 ![[20230814063644.png]]
-
-boot Rom
-→ bootloader驱动引导操作系统启动(类似bios）
+![[android-boot.jpg]]
+boot Rom(ROM中写死的程序)
+→ bootloader驱动引导操作系统启动(类似bios）（（bootloader初始化各种硬件，检验和加载 启动镜像，然后触发linux内核启动）
 
  - →linux内核启动idle （pid=0）进程（到此启动了linux, 启动各类驱动包括binder，注意此处并不是驱动抽象层）
 补充
@@ -162,7 +162,7 @@ boot Rom
 	- **SystemSever负责启动系统的各项服务,Android系统中Java世界的核心 Service都在这里启动**
 
 - -**> 执行systemServer main()
-- -> 调用zygote进入死循环监听  socket事件（比如frok app進程）（此处开始产生一些进程lancher，app等）
+- -> 调用zygoteServer.loop, zygote 进入死循环监听  socket事件（比如frok app進程）（此处开始产生一些进程lancher，app等）
 
 ![](QQ截图20220506193542.png)
 
@@ -172,6 +172,7 @@ boot Rom
 - （1）新进程fork zygote，能fork zygote中的资源的，dvm，jni等，每个进程就一个binder（指进程的binder，不是说app的binder，要分清）
 
 - （2）app请求zygote fork进程使用socket而不是用binder，因为binder支持异步调用（是有綫程池的），binder只有一个，调用的是zygote的binder，这个时候可能会等待binder的锁，**這時fork一個新进程，那麽他的的binder也可能在锁，但是无人通知，就会造成新进程binder死锁。
+fork子线程时候为了避免死锁，需要单线程环境。而binder是多线程，在fork子线程时候容易出线程死锁的问题。
 
 
 ##### ServiceManager
@@ -300,7 +301,76 @@ public void getContactNameByNumber() throws Exception {
 }
 ```
 
+### FileProvider
+ContentProvider 的一个特殊子类，用于==进程间文件共享，为应用内的文件创建 content:// URI，允许对文件的安全共享==，
+```xml 
+manifest.xml
+<provider                
+   android:name="androidx.core.content.FileProvider" 
+   android:authorities="${applicationId}.fileprovider"        android:grantUriPermissions="true"  
+   android:exported="false">               
+    <meta-data              
+    android:name="android.support.FILE_PROVIDER_PATHS" 
+    android:resource="@xml/filepaths" />           
+</provider>           
 
+filepaths.xml
+<paths>       
+   <files-path path="images/" name="myimages" />  
+</paths>
+```
+
+如果您根据本课程中的代码段定义，并请求文件 `default_image.jpg` 的内容 URI，将返回以下 
+	假如applicationId =   com.example.myapp
+URI：
+    content://com.example.myapp.fileprovider/myimages/default_image.jpg
+    
+`<files-path>` 标记共享了应用内部存储空间的 `files/` 目录中的目录。`path` 属性共享了 `files/` 的 `images/` 子目录。`name` 属性指示 `[FileProvider] 将路径段 `myimages` 添加到 `files/images/` 子目录中文件的内容 URI 中。
+    <paths>        <files-path path="images/" name="myimages" />    </paths>
+官方教程：https://developer.android.google.cn/training/secure-file-sharing/setup-sharing?hl=zh-cn
+在您需要共享文件的地方（例如，通过 Intent），调用 `FileProvider.getUriForFile()` 方法来获取文件的 content:// URI：
+```java
+//在这里替换域和文件名
+String authority = BuildConfig.APPLICATION_ID + ".fileprovider";
+File fileToShare = new File(filePath);//filepath就传入我们app的文件目录就行了
+Uri contentUri = FileProvider.getUriForFile(context, authority, fileToShare);
+
+```
+
+actionSend `Intent.ACTION_SEND` 是Android系统中的一个通用动作，用于指代在应用之间发送数据或分享内容的行为。当使用 `Intent` 的 `ACTION_SEND` 动作时，开发人员可以通过代码将一些数据传递给其他兼容的应用，如文本、图片或其他文件格式。这样一来，用户可以在不同应用之间共享数据。
+```java
+//contentUri 发送给对应的app
+
+Intent shareIntent = new Intent(Intent.ACTION_SEND);
+shareIntent.setType("image/jpeg"); //设置分享的文件类型
+
+shareIntent.putExtra(Intent.EXTRA_STREAM, contentUri);
+
+shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); //为接收者授予权限
+startActivity(Intent.createChooser(shareIntent, "分享图片"));
+
+```
+
+
+## 创建文件选择 Activity
+
+如需设置文件选择 Activity，请先在清单中指定以下内容：Activity、与操作 ACTION_PICK匹配的 intent 过滤器以及类别 CATEGORY_DEFAULT 和 CATEGORY_OPENABLE。另外，还需为您的应用向其他应用提供的文件添加 MIME 类型过滤器。以下代码段展示了如何指定新的 Activity和 intent 过滤器：
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">        
+<application>            
+	<activity android:name=".FileSelectActivity">                   
+	<intent-filter>                        
+		<action android:name="android.intent.action.PICK"/> 
+			<category android:name="android.intent.category.DEFAULT"/>  
+			<category  android:name="android.intent.category.OPENABLE"/>
+			<data android:mimeType="text/plain"/>   
+			<data android:mimeType="image/*"/>    
+			</intent-filter>               
+	</activity>
+	</application> 
+</manifest>
+
+```
 
 ### sharedPrefenrence:(简介， 详细对比见39)
 
@@ -329,7 +399,6 @@ apply源码
 ```java
 public void apply() {
             finallongstartTime= System.currentTimeMillis();
- 
             finalMemoryCommitResultmcr= commitToMemory();
             finalRunnableawaitCommit=newRunnable() {
                     publicvoidrun() {
@@ -363,7 +432,7 @@ public void apply() {
 ```
 
 从上面我们可以看到apply是把任务添加到了queuework中，
-**Android系统为了保障在页面切换，也就是在多进程中sp文件能够存储成功，在ActivityThread的handlePauseActivity和handleStopActivity时会通过QueuedWork.waitToFinish保证这些异步任务都已经被执行完成**。如果这个时候过度使用apply方法，则可能导致onpause，onStop执行时间较长，从而导致ANR。
+**Android系统为了保障在页面切换，也就是在多进程中sp文件能够存储成功，在ActivityThread的handlePauseActivity和handleStopActivity时会通过QueuedWork.waitToFinish保证这些异步任务都已经被执行完成**。如果这个时候==过度使用apply方法，则可能导致onpause，onStop执行时间较长，从而导致ANR==。
 Queuework：这是个内部 工具 类，用于==跟踪那些未完成的或尚未结束的全局任务（onPause，onStop检查）==，新任务通过方法 queue
 加入。添加 finisher
 的runnables，由 waitToFinish
@@ -969,7 +1038,7 @@ onCreate（saveInstanceState）  参数里-> 恢复
 
 锁屏 onPause()->onStop()
 
-
+![[24b51461d53a4664a80927a9b523f67b.png]]
 
 onSaveInstanceState()在生命周期结束前会调用该方法保存状态，当Activity非正常销毁之后，例如手机旋转，内存不足导致的后台自动销毁。
 我们可以将状态数据以key-value的形式放入到savedInstanceState中 
@@ -993,24 +1062,50 @@ onSaveInstanceState()在生命周期结束前会调用该方法保存状态，�
 - onRestart() 从不可见到可见   
 
 - onDestory() 销毁activity     退出当前Activity时被调用,调用之后Activity就结束了
+### 启动新的Activity生命周期
+当启动一个新的Activity时（比如说，通过调用startActivity(intent)方法），当前Activity会按照其生命周期的规则进行变化。
+
+当前Activity生命周期的行为如下所示：
+
+1. onPause()：当前Activity即将停止运行并进入Paused状态，因为新Activity会运行在前台。在这个方法中，您可以暂停与用户交互同相关的操作（例如动画，传感器数据收集等）以及释放共享或一次性资源。
+    
+2. onStop()：当新Activity全屏启动并完全遮挡当前Activity时，当前Activity的onStop()方法会被调用。此时，当前Activity进入Stopped状态。您可以在这个方法中进行一些资源释放、保存数据等操作，但请注意在此阶段不要执行太多操作，以免影响新Activity的启动速度。
+
+注意：==如果由于某些原因新Activity启动失败或退出，导致当前Activity重新回到前台，它会执行onRestart()==，然后再继续调用onStart()和onResume()方法逐级恢复。
+在一般情况下，当前Activity的生命周期状态将按照如下顺序：
+	- onPause()
+	- onStop()
+
+当用户返回到当前Activity时，它将执行：
+	
+	- onRestart()
+	- onStart()
+	- onResume()
 
 ![](QQ截图20230112185042.png)
 ## onRestoreInstanceState和onSaveInstanceState（Activity创建与恢复）
 ![[20191207134521432.png]]
+### onCreate也有一个：
+SaveInstanceState
+1. 配置变更：当设备配置发生变更时，例如屏幕旋转或者键盘可用性发生改变，Activity 可能会被销毁并重建。在这种情况下，系统会调用 Activity 的 `onSaveInstanceState()` 方法来保存实例状态，然后在重建 Activity 时通过 `onCreate(Bundle savedInstanceState)` 方法将其传递回去。通过这种方式，您可以保存 Activity 的状态信息，在重建之后恢复到正确状态。
+    
+2. 内存回收：如果系统资源不足，系统可能会销毁后台中的 Activity 以释放内存。在这种情况下，系统通常会在销毁 Activity 之前调用 `onSaveInstanceState()` 方法来保存实例状态。当用户再次返回到该 Activity 时，系统会使用已保存的实例状态创建一个新的 Activity 实例，然后调用 `onCreate(Bundle savedInstanceState)` 方法将其传递回去。
+    
 
+`onCreate()` 方法的参数 `Bundle savedInstanceState` 主要==用于传递== onSaveInstanceState() 保存的状态信息，以便在重新创建Activity时实现之前Activity状态的恢复。
 
-onSaveInstanceState()方法的作用：
+### onSaveInstanceState()方法的作用：
 
     给Bundle对象中保存相应的 instance state （指的是key-value pairs），这样当activity重新创建的时候，就可以通过获取bundle中存储的值，恢复到自己之前的状态
     在OnStop方法之后调用，通过lifeCycler的注册监听的。
 
-onRestoreInstanceState()方法的作用
+### onRestoreInstanceState()方法的作用
 
-    获取bundle中存储的instance state ，通过存储的值将activity恢复到我们期望的状态
-	当系统将我们的activity回收，并重新恢复的时候，会在Created状态之后调用onStart()方法，然后调用onRestoreInstanceState()方法，比如屏幕旋转的时候会调用onRestoreInstanceState()。
+获取bundle中存储的instance state ，通过存储的值将activity恢复到我们期望的状态
+当系统将我们的activity回收，并重新恢复的时候，会在Created状态之后调用onStart()方法，然后调用onRestoreInstanceState()方法，比如屏幕旋转的时候会调用onRestoreInstanceState()。
 	
-	但是activity进入后台再到可见的时候并不会调用onRestoreInstanceState()。
-	系统仅仅会在存在需要恢复的状态信息的时候调用onRestoreInstanceState()，因此在onRestoreInstanceState()方法中我们不需要判断bundle是否为null，这也意味着，调用了onRestoreInstanceState()那onSaveInstanceState()方法也必定调用过。但是如果是在onCreate()中恢复Bundle中的数据，那么我们就需要考虑Bundle是否为null。
+但是activity进入后台再到可见的时候并不会调用onRestoreInstanceState()。
+系统仅仅会在存在==需要恢复的状态信息的时候调用onRestoreInstanceState()==，因此在onRestoreInstanceState()方法中我们不需要判断bundle是否为null，这也意味着，调用了onRestoreInstanceState()那onSaveInstanceState()方法也必定调用过。但是如果是在onCreate()中恢复Bundle中的数据，那么我们就需要考虑Bundle是否为null。
 
 
 ### 2.2.1 app启动流程
@@ -1069,7 +1164,7 @@ onRestoreInstanceState()方法的作用
 -  > ams将入口 activity 信息==ActivityClientRecord==等信息通过binder传递给 app
 	- > ** binder调用`bindAppliction( )`->handleBindApplication（）方法根据ams发过来的包信息创建 applictioncontext，初始化资源信息
 	- handleBindApplication内还初始化了contentProvider，这就是为什么contentProvider的onCreate比app的早的原因**
-- >初始化 Instrumentation，app通过performLanchActivity()方法,创建activtiycontext和activity, 启动对应入口的activity , 进入activtiy启动流程
+- >初始化 Instrumentation，==app通过performLanchActivity()方法,创建activtiycontext和activity, 启动对应入口的activity , 进入activtiy启动流程==
 - [[#2.2.2 activity启动流程]]
 
 注意：版本不同会代用不一致，比如创建application的方式或者是启动activity的方式
@@ -1114,41 +1209,7 @@ private class [ApplicationThread] extends [IApplicationThread].[Stub]() {..
 
 
 
-App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局未加载到window中，**就先显示来windows窗口的背景。黑屏/白屏就是显示的windows背景（这个就是theme的设置）**
 
-**App启动白屏或黑屏解决方案**：
-
-(1) 为Theme设置背景图(会给人一种快速加载的感觉)
-
-<stylename="Theme.AppStartLoad"parent="android:Theme">
-
-<itemname="android:windowBackground">@drawable/ipod_bg</item>
-
-<itemname="android:windowNoTitle">true</item>
-
-</style>
-
-(2) 为Theme设置透明属性(会给人较慢加载出来感觉)
-
-<stylename="Theme.AppStartLoadTranslucent"parent="android:Theme">
-
-<itemname="android:windowIsTranslucent">true</item>
-
-<itemname="android:windowNoTitle">true</item>
-
-</style>
-
-### App的启动优化：
-
-	(1) Application的创建过程中尽量少的进行耗时操作（創建application）
-
-	(2) 如果用到SharePreference,尽量在异步线程中操作
-
-	(3) 减少布局的层次,并且生命周期回调的方法中尽量减少耗时的操作（解析viewtree）
-	可以使用idlehandle
-
-#### StartUp
-要解决的问题，任务执行顺序问题和并发执行。
 
 ### 2.2.2 activity启动流程
 
@@ -1158,14 +1219,14 @@ App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局�
 
 -> strartctivtiy
 -> Instrument.execStartActivities
-->**通过binder - applicationThread 跨进程调用 ActivityTaskManagerService.startActivity()**
+->**通过servicemanager获取到ATMS--ActivityTaskManagerService.startActivity()**
 
 ->ams 通过 applicationThread 回调ActivityThread.startActivityNow ，并传回一个token
 	- ams解析了activity信息，发送ActivityClientRecord到Activity
 -》ActivtiyThread.handleLaunchActivity()-》ActivtiyThread.performLanchActivity()
 - 创建aactivityContext
 - 调用mInstrumentation.newActivtiy创建对象activtiy
-		- 》調用activtiy.ATTCH（传入了大量参数，instrument等等
+		- 》調用activtiy.attach（传入了大量参数，instrument等等
 		- 》**在Activtiy.attch(....)方法中創建phonewindow，windowsmanager**
 		
 - 》mInstrumentation.callActivityOnCreate
@@ -1231,7 +1292,7 @@ public void handleResumeActivity(ActivityClientRecord r, boolean finalStateReque
 Framework层非常重要的一个service。用于启动和管理四大组件以及他们的生命周期
 存在于Sytemserver进程中.
 
-在Android系统中，AMS（Activity Manager Service）和ATMS（Activity Task Manager Service）都是系统服务的一部分，它们负责管理应用程序的界面和任务。都在systemserver中，它们之间不需要进程通信。
+在Android系统中，AMS（Activity Manager Service）和 ATMS（Activity Task Manager Service）都是系统服务的一部分，它们负责管理应用程序的界面和任务。都在systemserver中，它们之间不需要进程通信。
 
 AMS是Android系统中的核心服务之一，它负责==控制应用程序的执行和生命周期==。它处理==应用程序的启动、停止、切换和回收等操作==，同时还负责==权限管理、安全检查和其他与应用程序相关的系统级功能==。
 
@@ -1249,6 +1310,20 @@ AMS和ATMS之间有紧密的关系。ATMS依赖于AMS来获取关于应用程序
 
 
 PKMS启动时候是比较费时的，因为在启动的时候需要解析系统根目录下的几个主要的apk路径（包括了data/data下的apk和system下的apk），==解析apk结构，package信息和四大组件==的信息，以及==权限==
+
+###  PowerManagerService
+
+1. 向上提供给应用程序接口，例如音频场景中保持系统唤醒、消息通知中唤醒手机屏幕场景；
+2. 向下决策HAL层以及Kernel层来==控制设备待机状态，控制显示屏、背光灯、距离传感器、光线传感器==等硬件设备的状态；
+PowerMananger 是PowerManangerService的代理类，PowerMananger向上层应用提供交互的接口。上层调用对应的接口后，具体的工作内容交予PowerManangerService完成。可以重点关注如下接口：
+
+- wakeUp()  hide接口，不开放给应用。作用：强制系统从睡眠状态唤醒。
+- gotoSleep() hide接口，不开放给应用。作用：强制系统进入睡眠状态
+ - userActivity()   向PowerManagerService报告影响系统休眠的用户活动，重新计算灭屏时间，背光亮度，例如触屏、滑屏、power键等用户行为。
+- Wakelock（特别常用）
+    wakelock是PowerManager的一个内部类，提供了相关的接口来操作wakelock锁。应用层可以使用newWakeLock方法创建wakelock锁，使用acquire()和release()来申请和释放锁。例如如下demo的使用
+
+- isDeviceIdleMode  ==查看是否进入了Doze低功耗模式==
 ## 2.3 APP重启
 
 ```JAVA
@@ -1373,7 +1448,7 @@ public class MyService extends Service{
 (4)Service通常位于后台运行，它一般不需要与用户交互，因此Service组件没有图形用户界面。Service组件需要继承Service基类。Service组件通常用于为其他组件提供后台服务或监控其他组件的运行状态。
 
 **(5)onStartCommand方法返回有4种** 
-- START_STICKY 
+- START_STICKY （从Android 10（API级别29）开始，所有运行中的Service都会在==应用程序被系统杀死时停止==，而不会保持START_STICKY状态。）
 - START_NOT_STICKY 
 - START_REDELIVER_INTENT 
 - START_STICKY_COMPATIBILITY 
@@ -1901,6 +1976,9 @@ window是个抽象概念，其具体实现类是phonewindow**，activity和dialo
 
 ## 7.2 View绘制流程
 相关[[#2.2.2 activity启动流程]]
+[[#7.5 Android渲染机制--SurfaceFlinger]]
+
+
 
 onResume中无法正常获取宽高，**此时还没viewroot.addview*, resume之后才会触发绘制流程，
 
@@ -1956,11 +2034,12 @@ try {
 	        .....
 	        }
 ```
--》viewrootImpl.perfromTraversal（）
+-》viewrootImpl.perfromTraversal（）->内部还执行 relayoutWindow（）（通过IWindowsSession通知wms创建surface）
 -》==performMeasure，performDraw，performlAYOUT==，调用==decordview的各个绘制过程*==*
 ==并且該過程中執行了view.post的各種任務（post是在measure之后）和 TreeObserver 回調（三大perform之前）、dispatchAttachWidnow( 三大perform之前）==
 ![](繪製流程.webp)
 
+![[截图20231017004246.png]]
 
 
 **View的绘制基本由 measure()、layout()、draw() 这个三个函数完成**
@@ -2197,6 +2276,12 @@ int是32位的，其中高2位表示模式（Mode），低30位表示大小（Si
 | UNSPECIFIED | 无限制，View对尺寸没有任何限制，View设置为多大就应当为多大。 这种情况一般用于系统内部，表示一种测量状态。 |      |
 
 **子View的MeasureSpec是由自身的LayoutParams和父布局的MeasureSpec共同确定的**。
+
+1. `MeasureSpec.EXACTLY`：准确模式，要求视图的大小必须符合给定的值。在xml布局中，对应与"match_parent"或者是一个明确的尺寸（比如20dp，300px等）。
+    
+2. `MeasureSpec.AT_MOST`：最大值模式，视图大小可以任意，但不得超过设定的值。在xml布局中，对应于"wrap_content"。
+    
+3. `MeasureSpec.UNSPECIFIED`：不指定大小模式，通常用在系统内部，在MeasureSpec中，允许视图大小为任何值。在xml布局中不存在直接对应，一般在ScrollView或者ListView这类控件内部使用。
 
 ###  7.2.2 Draw()
 
@@ -2527,7 +2612,7 @@ Window 有三种类型，分别是==应用 Window==、==子 Window==和==系统 
 系统 Window是需要声明权限才能创建的 Window，比如 Toast 和系统状态栏都是系统 Window。
 ![[14919101-a34496946644357e.webp]]
 
-window主要用于管理decoview，与WindowManagerService通过AIDL IBinder --- windowSession 
+==window主要用于管理decoview，与WindowManagerService通过AIDL IBinder --- windowSession==
 
 #### Dialog
 首先看看Dialog的构造方法
@@ -2568,7 +2653,7 @@ WindowToken在窗口体系中有**两个作用**：
 - 1.**应用组件标识**：将属于同一个应用组件的窗口组织在一起，这里的应用组件可以是：Activity、InputMethod、Wallpaper以及Dream。 WMS在对窗口的管理过程中：用WindowToken来指代一个应用组件。例如在进行窗口的Z-Order排序时，属于同一个WindowToken的窗口会被安排在一起。
 - 2.**令牌作用**：WindowToken由应用组件或其管理者负责向WMS声明并持有，应用组件在需要更新窗口时，需要向WMS提供令牌表明自己的身份， 并且窗口的类型必须与所持有的WindowToken的类型一致。
 
-  #### WindowState：
+#### WindowState：
 
 类声明：
 
@@ -2578,7 +2663,7 @@ class WindowState extends WindowContainer<WindowState>
 
 **表明WindowState也是一个WindowContainer容器，但是其子容器也是WindowState**，一般窗口有子窗口SUB_WINDOW的情况下，WindowState才有子容器节点。
 
-**WindowState在WMS中表示一个Window窗口状态属性，其内部保存了一个Window所有的属性信息。**
+==**WindowState在WMS中表示一个Window窗口状态属性，其内部保存了一个Window所有的属性信息。**==
 
   
 ![[3884533-3110238af14e7e3b.webp]]
@@ -2587,19 +2672,23 @@ class WindowState extends WindowContainer<WindowState>
 ### 7.4.2 WindowManger
 
 WindowManager是Android中一个重要的Service,是全局且唯一的。WindowManager继承自ViewManager。  WindowManager主要用来管理窗口的一些状态、属性、view增加、删除、更新、窗口顺序、消息收集和处理等。Android中真正展示给用户的是window和view，activity所起的作用主要是处理一些逻辑问题，比如生命周期管理及建立窗口。
-通过ISessionWindow （AIDL Binder）与WMS跨进程通信，
-这里蛮特殊的，不是直接通过serviceManager.getService("WindowsManagerService")显式获取binder，而是隐式创建binder（wms作为service， wmGlobal作为客户端）
+==通过IWindowSession （AIDL Binder）与WMS跨进程通信，
+这里蛮特殊的，不是直接通过serviceManager.getService("WindowsManagerService")显式获取binder，而是隐式创建binder（wms作为service， wmGlobal作为客户端）==
 
 wm = 接口viewManager，接口windowManager，windowsMangerImpl实现类，，《—
 windowsMangerGlobal是wmImpl内部的单例，viewrootImpl操作view
 ![[20201214164951395.png]]
 
 ## 7.5 Android渲染机制--SurfaceFlinger
+渲染流程
+![[截图20231016222318.png]]
+
+![[截图20231017004534.png]]
 ### SurfaceFlinger
 
 Android 图形架构使用了生产者——消费者模型。Surface 表示缓冲队列中的生产方，图像流最常见的消耗方是 SurfaceFlinger，该系统服务接收来自于多个源的数据缓冲区，组合它们，并将它们发送给显示设备。
 
-Android 应用程序为了能够将自己的 UI 绘制在系统的帧缓冲区上，它们就必须要与 SurfaceFlinger 服务进行通信。**SurfaceFlinger 服务运行在 Android 系统的 System 进程中，它负责管理 Android 系统的帧缓冲区（Frame Buffer 一般是GPU显存上）。**
+Android 应用程序为了能够将自己的 UI 绘制在系统的帧缓冲区上，它们就必须要与 SurfaceFlinger 服务进行通信。==**SurfaceFlinger 服务运行在 Android 系统的 System 进程中，它负责管理 Android 系统的帧缓冲区（Frame Buffer 一般是GPU显存上）。**== 缓存的具体体现是surfac队列
 SurfaceFlinger 的职责
 
 SurfaceFlinger 主要有以下几个职责：
@@ -2618,7 +2707,7 @@ VSYNC是Vertical Synchronization（垂直同步）的缩写，是一种在PC上�
 
 手机的屏幕都是60Hz的刷新率，系统为了配合屏幕的刷新频率，每过16.6ms就会发出Vsync信号来通知应用进行绘制。如果每个Vsync周期应用都能完成渲染逻辑，那么应用的FPS就是60，给用户的感觉就是非常流畅。
 
-附：Android Display架构图
+附：Android Display完整架构图
 ![[0331a4df5fce4bf58a9a93af0c1650f1.png]]
 
 
@@ -2657,8 +2746,6 @@ Choreographer 的引入，主要是配合 Vsync，给上层 App 的渲染提供�
   getWindow().clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS); 
   getWindow().setStatusBarColor(getResources().getColor(android.R.color.holo_red_light)); 
   ```
-
-
 
 - Android 6.0(API 23)以上版本：其实Android6.0以上的实现方式和Android 5.0   +是一样，为什么要将它归为一个单独重要的阶段呢?是因为从Android 6.0(API   23)开始，我们可以改状态栏的绘制模式，可以显示白色或浅黑色的内容和图标(除了魅族手机，魅族自家有做源码更改，6.0以下就能实现);
 
@@ -2717,7 +2804,7 @@ public abstract class LayoutInflater{
 
 - res/raw不可以有目录结构，而assets则可以有目录结构，也就是assets目录下可以再建立文件夹
 
-Resource也是通过AssetManger来访问被编译过的应用程序资源（resources.arsc），访问之前是会先通过id来访问，**AssetManger既可以通过文件名访问被编译过的也可以访问没被编译过的资源文件。**
+Resource也是通过AssetManger来访问被编译过的应用程序资源（resources.arsc），访问之前是会先通过id来访问，==**AssetManger既可以通过文件名访问被编译过的也可以访问没被编译过的资源文件。**==
 
 # 8. Fragment 与Framgment懒加载的实现
 
@@ -2808,7 +2895,7 @@ public void setPrimaryItem(@NonNull ViewGroup container, int position, @NonNull 
 > 1.开启一个前台Service
 >  2.Android 6.0+ 忽略电池优化开关(`稍后会有代码`)
 >  3.无障碍服务(只针对有用这个功能的app，如支付宝语音增强提醒用了它)
-
+	//当启动无障碍服务时会自动启动前台服务，只要前台服务存在，无障碍就可以一直运行！如果没有加入前台服务，无障碍服务是运行在后台的，非常容易被系统杀死！！！（个人见解） 作者：填写昵称已被占用 https://www.bilibili.com/read/cv12200073/ 出处：bilibili
 ------
 
 #### 2.Android 8.0之后-常用的保活方案
@@ -3182,7 +3269,7 @@ maxRequests 同时请求最大的执行
 
 ## realcall
 
-**一个realcall不能调用两次enqueue，会报错已执行。**
+==**一个realcall不能调用两次enqueue，会报错已执行。**==
 **call的方法（.enqueue(request）)其实是执行Dispatcher中的enqueue方法**，把realccall传入。
 
 ```kotlin
@@ -4417,7 +4504,7 @@ looper其实管理message queue的类。一个线程只有一个looper。主线�
 
 threadlocal：数组键值对。t=key，t+1=value
 已经存储了线程对应的loop，所以一个线程只能创建一个loop
-
+==内部是一个ThreadLoacalMap，key为当前threadlocal的弱引用==
 **loop**：开启消息循环，从消息队列中不断取出
 
 **quit**&qiutsafety：退出消息循环，不线程无法回收
@@ -5568,6 +5655,19 @@ ANR:Application Not Responding，即应用无响应，Android系统对于一些�
 
 一般地，这时往往会弹出一个提示框，告知用户当前xxx未响应，用户可选择继续等待或者Force Close 
 
+Android 系统中，ANR 的检测是通过系统服务 ActivityManagerService （AMS）和 Window Manager Service （WMS）来进行的。
+
+1. 在 AMS 中，主要检测包括：
+    
+    - BroadcastReceiver：默认情况下，Broadcast Receiver 的 onReceive()方法运行在 UI 线程，如果 ==onReceive()方法在10秒内没有执行完==，系统就会触发 ANR。
+        
+    - Service：==对于 Service，如果 onStartCommand() 或者 onBind() 没有在20秒内执行完毕，系统也会触发 ANR。==
+        
+    - ContentProvider：==如果 Content Provider 中的 CRUD 操作在10秒内没有执行完，系统也会触发 ANR。==
+        
+2. 在 WMS 中，主要检测包括：
+    
+    - InputDispatching：如果 InputDispatching 阶段的事件在 5 秒内没有得到响应，也会触发 ANR。
 
 
 https://www.jianshu.com/p/d19c34e7e9bd
@@ -6436,7 +6536,7 @@ LruCache<String, Bitmap> mMemoryCache = new LruCache<String, Bitmap>(cacheSize) 
 
 ## 使用注意事项
 - 当activity退出的时候，一定要回收Bitmap.recyler。
-- 创建bitmap时，根据可能会出现的大小进行==try..catch避免oom的crash==
+- 创建bitmap时，根据可能会出现的大小进行==try.catch避免oom的crash==
 
 当使用Bitmap加载过大的图片时，可能会导致OutOfMemoryError（OOM）错误。原因主要有以下几点：
 
@@ -6485,11 +6585,28 @@ LaunchState: UNKNOWN (0)  （应用在前台时，调用adb命令）
 
 ## 1.老三样
 
-a. view布局避免过深，使用viewstub替换
+a. view布局避免过深，使用约束布局等代替嵌套，还有使用==viewstub替换==
 
 b.在application初始化时，第三方sdk懒加载。启动页不重要的使用子线程加载，但是需要注意子线程尚未加载/加载未成功但是在mainThread使用的情况
 
 c.启动页黑白屏, AppTheme设置<item name="android:windowBackground">XXXX(图片，颜色)</item>
+
+### viewstub
+1.  继承自view
+2. 实际上是一个宽高都是0，并且不可见
+3. 可以通过布局文件的android:inflatedId或者调用ViewStub的setInflatedId方法为懒加载视图的跟节点
+```xml
+<ViewStub
+        android:id="@+id/stub"
+        android:inflatedId="@+id/subTree"
+	    android:layout="@layout/my_sub_tree"//真正的布局
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+```
+在==调用inflate方法之前，ViewStub一直存在于视图树中，当调用inflate之后，ViewStub被加载的视图替换==，到此，ViewStub的作用完成，之后ViewStub可能被内存回收（如果没有声明成成员变量的话，也就是没有强引用）
+
+它的作用就是==延迟infate解析==，等到后续调用的时候==再解析对应的布局view到viewtree中==。
+如果我们给view直接设置gone/invisible，那么它只是在绘制的时候会被跳过，但是依然会被解析。
 
 ## 2.Multidex
 
@@ -6610,19 +6727,15 @@ android类加载机制：Android的类加载和Java的类加载比较类似，�
 
 当==**某一个类所有的构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候**，这个类就会被打上**class_ispreverified**标签。==所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误。
 
-
 解决的思路是当这些类已经被编译完成之后，在**字节码的层面去注入一些来自于其他dex的类**,也就是**插桩**。[[#54. 字节码插桩]]
-
-
-  
 
 Android的gradle插件也提供了这样的一些接口，叫做Transform的API。这个API会提供一个调用的时机，当代码文件被编译成JAR但是还没有被打成dex的时候，提供了在这个时期做一些事情的接口。
 正是利用这个接口，当拿到编译完成的字节码文件之后，可以对其进行字节码的注入，进行所谓的插桩，插入一些来自于其他dex文件的类，这样当App再被安装并执行dex    opt过程的时候就不会再被打上预校验的标签
 
 ### 如何防止我们源代码中所有的类被打上CLASS_ISPPREVERIFIED标记？
 
-> 理论上，一个android工程中所有的java类（除了Application之外）都有可能需要热修复。如果让这些类都去引用一个另一个dex文件中的Class，就能防止在dex进行oat的时候被打上CLASS_ISPPREVERIFIED标记。  
-> 但是这样有一个弊端，就是 CLASS_ISPPREVERIFIED带来的性能提升将会消失。但是既然出现bug，要解决，总要付出一点代价。
+> 理论上，一个android工程中所有的java类（除了Application之外）都有可能需要热修复。==如果让这些类都去引用一个另一个dex文件中的Class，就能防止在dex进行oat的时候被打上CLASS_ISPPREVERIFIED标记。  ==
+> 但是这样有一个弊端，==就是 CLASS_ISPPREVERIFIED带来的性能提升将会消失。但是既然出现bug，要解决，总要付出一点代价。==
 
 > 2.1:创建一个空白java类 AntilazyLoad。编译它，得到 AntilazyLoad.class 然后用dx命令，将它打包成hack.dex
 
@@ -7301,7 +7414,8 @@ restart:
 
 ### 问题
 1. binder支持多线程吗？支持，内部会上同步锁，这也是为什么forkZygote使用socket(UDS)防止新进程死锁。
-2. intent为什么不支持传输大数据？
+
+3. intent为什么不支持传输大数据？
 
 ## 4.AIDL
 基于binder
@@ -7903,6 +8017,99 @@ Transform是Gradle的一个类似拦截器的功能，可以获取上一个Trans
 ## Gradle + Transformer
 使用Transformer提供的接口在打包
 
+# 启动优化
+
+### App的启动优化：
+
+
+(1) Application的创建过程中==尽量少的进行耗时操作（創建application）==
+
+(2) 如果用到==SharePreference, 尽量在异步线程中操作==
+
+(3) 减少布局的层次,并且生命周期回调的方法中尽量减少耗时的操作==（解析viewtree）
+	可以使用idlehandle==
+
+(4)减少资源的大小和数量，用webp和矢量图（SVG）替代
+
+(5) (黑科技)==dex分包预加载，多开一个进程单独进行dex的预加载。==
+	MultiDex第一次加载出现ANR的原因是因为**提取Dex以及DexOpt这两个过程都是耗时的操作**
+	![[f6bnx1so0r.jpeg]]
+
+
+#### StartUp
+要解决的问题，任务执行顺序问题和并发执行。
+
+
+#### 黑白屏
+App启动白屏或黑屏的原因：是因为已进入到Activity,但是布局未加载到window中，**就先显示来windows窗口的背景。黑屏/白屏就是显示的windows背景（这个就是theme的设置）**
+
+**App启动白屏或黑屏解决方案**：
+
+(1) 为Theme设置背景图(会给人一种快速加载的感觉)
+
+<stylename="Theme.AppStartLoad"parent="android:Theme">
+
+<itemname="android:windowBackground">@drawable/ipod_bg</item>
+
+<itemname="android:windowNoTitle">true</item>
+
+</style>
+
+(2) 为Theme设置透明属性(会给人较慢加载出来感觉)
+
+<stylename="Theme.AppStartLoadTranslucent"parent="android:Theme">
+
+<itemname="android:windowIsTranslucent">true</item>
+
+<itemname="android:windowNoTitle">true</item>
+
+</style>
+
+
+# OOM
+## OOM问题分类
+
+很多人对于OOM的理解就是Java虚拟机内存不足，但通过线上OOM问题分析，OOM可以大致归为以下3类：
+==
+1. 线程数太多
+2. 打开太多文件
+3. 内存不足==
+
+`pthread_create`里面会调用Linux内核创建线程，那什么情况下会创建线程失败呢？
+android系统源码中此时会抛出oom
+
+```java
+void Thread::CreateNativeThread(JNIEnv* env, jobject java_peer, size_t stack_size, bool is_daemon) {
+  ...
+  pthread_create_result = pthread_create(...)
+  //创建线程成功
+  if (pthread_create_result == 0) {
+      return;
+  }
+  //创建线程失败
+  ...
+  {
+    std::string msg(child_jni_env_ext.get() == nullptr ?
+        StringPrintf("Could not allocate JNI Env: %s", error_msg.c_str()) :
+        StringPrintf("pthread_create (%s stack) failed: %s",
+                                 PrettySize(stack_size).c_str(), strerror(pthread_create_result)));
+    ScopedObjectAccess soa(env);
+    soa.Self()->ThrowOutOfMemoryError(msg.c_str());
+  }
+}
+```
+### 查看系统对每个进程的线程数限制
+> cat /proc/sys/kernel/threads-max
+
+![](https://pic2.zhimg.com/80/v2-7c256acaca6acb71600bbde988ffb5a5_720w.webp)
+
+==不同设备的threads-max限制是不一样的==，有些厂商的低端机型threads-max比较小，容易出现此类OOM问题。
+
+输入以下指令获取
+	cat proc/{pid}/status
+
+优化方案：
+如果是线程太多，第三方或者遗留代码难以修改都可以尝试使用插桩方式，对newThread进行线程池替换。
 
 # 55. 界面卡顿优化
 ## 卡顿是什么导致的？
@@ -8164,6 +8371,19 @@ Bitmap可以采用第三方框架来管理。
 	- MemGuard
     
     检测堆内存访问越界、使用释放后的内存、重复释放等问题
+3.koom
+KOOM框架  
+快手KOOM核心流程包括：配置下发决策、监控内存状态、采集内存镜像、解析镜像文件(以下简称hprof)生成报告并上传、问题聚合报警与分配跟进。  
+  
+无主动触发GC不卡顿  
+==之前行业的普遍做法是通过在Activity.onDestroy()后连续触发两次GC（**Leakcanary会在onDestory方法中进行2次GC（为啥要多次GC，其实是因为一次GC并不能保证对象被回收，可以通过上面的例子中看出）**）==，并检查引用队列，判定Activity是否发生了泄漏，但频繁GC会造成用户可感知的卡顿，快手为实现无感触发设计了全新的监控模块，通过无性能损耗的内存阈值监控来触发镜像采集。将对象是否泄漏的判断延迟到了解析时，阈值监控只要在子线程定期获取关注的几个内存指标即可，性能损耗忽略不计。  
+  
+内存监控流程图  
+  
+高性能镜像DUMP  
+采集内存镜像传统方案会造成应用完全冻结长达几秒，期间用户完全不能操作，严重损害用户体验。快手利用系统内核COW(Copy-on-write，写时复制)机制，每次dump内存镜像前先暂停虚拟机，然后fork子进程来执行dump操作，父进程在fork成功后立刻恢复虚拟机运行，整个过程对于父进程来讲总耗时只有几毫秒，对用户完全没有影响。  
+==暂停虚拟机需要调用虚拟机的art::Dbg::SuspendVM函数==，谷歌从Android 7.0开始对调用系统库做了限制，==快手自研了kwai-linker组件，通过caller address替换和dl_iterate_phdr解析绕过了这一限制。==
+
 ## Android dump日志详解
 简介
 
@@ -8210,6 +8430,9 @@ public class MyApplication extends Application {
 ## 1.简介：ndk与jni
 `NDK`全称`Native Development Kit`，是Android的一个开发工具包,与Java并没有什么关系.
 `NDK`的核心目的之一是让您将 C 和 C++ 源代码构建为可用于应用的共享库。提供了交叉编译的功能.
+Android NDK (Native Development Kit) 主要使用的编译器是 GCC (GNU Compiler Collection) 和 Clang。但是从 NDK r18 开始，Google 不再支持 GCC，只支持 Clang 编译器。
+
+Clang 是一个基于 LLVM 的编译器前端，支持 C, C++ 和其他语言。Android 鼓励开发人员使用 Clang，因为在这个工具链上他们提供更全面的支持和更新。Clang 也为开发者提供了更现代的一些特性以及更好的错误诊断信息等优点。
 
 ### JNI
 即 Java Native Interface ，是 Java 提供用来与其他语言通信的 api ，“其他语言”意味不止局限于 C 或 C++ ,也可以调用除 C 和 C++ 之外的语言，只是大多数情况下调用 C 或 C++ ; “通信”意味着 Java 和 其他语言之间可以相互调用，不止局限于 Java 调用其他语言，其他语言也可以主动调用 Java .
