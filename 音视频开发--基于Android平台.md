@@ -81,13 +81,12 @@ public static final String MIMETYPE_VIDEO_RAW = "video/raw";
 ```
 
 ### YUV和RGB
-YUV是指亮度参数和色度参量分开表示的像素格式，其中“Y”表示明亮度（Luminance或Luma），也就是灰度值；而“U”和“V”表示的则是色度（Chrominance或Chrima），作用是描述色彩及饱和度,用于指定像素的颜色。
+YUV是指亮度参数和色度参量分开表示的像素格式，其中“Y”表示明亮度（Luminance或Luma），也就是灰度值；==而“U”和“V”表示的则是色度（Chrominance或Chrima）==，作用是==描述色彩及饱和度==, 用于指定像素的颜色。
 Y：亮度分量，表示物理线性空间亮度。
-U：蓝色投影。
-V：红色投影。
+U：==蓝色投影==。
+V：==红色投影==。
 #### 为什么要有YUV这种数据出来？
 比起RGB，YUV更符合人眼的识别方式，
-
 
 #### MPEG4
 H264和MPEG4都是基于MPEG-4标准的视频压缩方法，但是H264是MPEG-4的第10部分，也叫做MPEG-4 AVC（Advanced Video Coding），而MPEG4是MPEG-4的第2部分，也叫做MPEG-4 ASP（Advanced Simple Profile）
@@ -168,7 +167,7 @@ H265相比264/AVC的算法要更加复杂
 ### **视频解码器/解码器**
 #### 1.MediaCodec
 MediaCodec是Android平台提供的一个底层的音视频编解码框架，它是安卓底层多媒体基础框架的重要组成部分。它经常和 MediaExtractor, MediaSync, MediaMuxer, MediaCrypto, MediaDrm, Image, Surface, AudioTrack一起使用。解码的作用，就是将视频/音频压缩编码数据，解码成为非压缩的视频/音频原始数据。反之，编码的作用，就是将非压缩的视频/音频原始数据转为视频/音频压缩编码数据。
-**一般默认是硬解码，但是需要硬件支持，如果没有就只能软解**
+**==一般默认是硬解码，但是需要硬件支持，如果没有就只能软解**==
 
 编码大致流程：设置编码参数---创建编码器----创建混合器MediaMuxer（封装成盒子（mp4等等））----开始编码
 #### 2.FFmpeg
@@ -184,17 +183,17 @@ MediaCodec是Android平台提供的一个底层的音视频编解码框架，它
 |avdevice|输入输出设备库，提供设备数据的输入与输出|
 
 源码结构：
-- libavcodec:提供了一个通用的编码/解码框架包含多种音解码器和编码器，视频和字幕流，和几个比特流过滤器。共享体系结构提供了各种各样的服务，从比特流I/O到DSP优化，使得它适合于实现健壮和快速的编解码器，以及用于实验。
+- libavcodec: 提供了一个通用的编码/解码框架包含多种音解码器和编码器，视频和字幕流，和几个比特流过滤器。共享体系结构提供了各种各样的服务，从比特流I/O到DSP优化，使得它适合于实现健壮和快速的编解码器，以及用于实验。
 
-- libformat:提供了视频的复用和多路处理功能。实现了流媒体协议（udp、rtp、rtmp、rtsp等），媒体容器（mp4、AVI、Flv等）和基本的I/O访问。
+- libformat: 提供了视频的复用和多路处理功能。实现了流媒体协议（udp、rtp、rtmp、rtsp等），媒体容器（mp4、AVI、Flv等）和基本的I/O访问。
 
-- libavutil:是一个实用程序库，以帮助便携式多媒体编程。它包含了安全的移动字符串函数，随机数生成器，数据结构，附加数学功能，加密和多媒体相关的功能（如枚举的像素采样格式）。它并不是libavcodec和libav必备的库
+- libavutil: 是一个实用程序库，以帮助便携式多媒体编程。它包含了安全的移动字符串函数，随机数生成器，数据结构，附加数学功能，加密和多媒体相关的功能（如枚举的像素采样格式）。它并不是libavcodec和libav必备的库
 
-- libavdevice:抓取和绘制多种多媒体输入/输出设备提供了一个通用的框架，支持多种输入和输出设备，包括video4linux2 vfw dshow ALSA。
+- libavdevice: 抓取和绘制多种多媒体输入/输出设备提供了一个通用的框架，支持多种输入和输出设备，包括video4linux2 vfw dshow ALSA。
 
-- libavfilter:是一个通用的音视频后处理库。例如噪音处理
+- libavfilter: 是一个通用的音视频后处理库。例如噪音处理
 
-- libswcale:执行高度优化的图像缩放和颜色的像素格式转换操作。  
+- libswcale: 执行高度优化的图像缩放和颜色的像素格式转换操作。  
 具体来说，这个库执行以下操作：  
 缩放：是改变视频大小的过程。几种缩放选项和算法都可以。这通常是一个有损过程。  
 像素格式转换：是图像的图像格式和色彩空间转换的过程，例如从平面yuv420p为RGB24包装。它还处理包装转换，即从填充布局（所有属于同一缓冲区内的不同平面的像素）转换为平面布局（所有属于同一平面的样本都存储在专用缓冲区或“平面”）中。  
@@ -264,7 +263,7 @@ https://blog.51cto.com/u_12127193/5739376?articleABtest=0
 
 #### PCM
 PCM是声音从模拟信号转为数字信号的技术。
-通常所说的音频的裸数据就是 PCM (Pulse Code Modulation) 数据。
+通常==所说的音频的裸数据就是 PCM (Pulse Code Modulation) 数据。==
 描述一段 PCM 数据一般需要以下几个概念：
 - 量化格式(sampleFormat)
 - 采样率（sampleRate）
@@ -316,7 +315,7 @@ ijkplayer是一款跨平台的播放器，支持Android与iOS端，核心部分�
 
 - 2.支持视频内容的加密，避免版权内容被人依靠复制传播牟利
 
-RTSP和RTMP是基于会话的流媒体协议，HLS(Http Live Streaming)、HDS(Http Dynamic Streaming)和Smooth Streaming(HSS)则是基于HTTP的协议。
+==RTSP和RTMP是基于会话的流媒体协议==，===HLS(Http Live Streaming)、HDS(Http Dynamic Streaming)和Smooth Streaming(HSS)则是基于HTTP的协议==。
 
 ## ## RTSP协议、RTP、RTCP、SDP
 ### RTSP
@@ -355,9 +354,21 @@ RTSP协议支持重定向，即将播放会话重定向，让其他服务器提�
 
 ## ## RTMP实时消息传输协议
 
-RTMP（Real-Time Messaging Protocol，即实时消息传输协议）。RTMP是基于**TCP**的**可靠传输层协议**，仅需一个会话即可相互通信，与RTSP协议相比，如同由轨道支撑的高速铁路，虽然形式略重，但效率高、速度快。
+RTMP（Real-Time Messaging Protocol，即实时消息传输协议）。==RTMP是基于**TCP**的**可靠传输层协议**==，仅需==一个会话即可相互通信==，与RTSP协议相比，如同由轨道支撑的高速铁路，虽然形式略重，但效率高、速度快。用来解决多媒体数据传输流的**多路复用（Multiplexing）**和**分包（Packetizing）**的问题。
 
-RTMP并非一个单独协议，而是由多个相关协议组成的协议族。
+在发送端：
+
+- 把数据封装成消息（Message）；
+- 把消息分割成块（Chunk）；
+- 将分割后的块（Chunk）通过传输协议（如 TCP）协议发送到网络传输出去。
+
+在接收端：
+
+- 在通过 TCP 协议收到后块（Chunk）数据；
+- 先将块（Chunk）重新组装成消息（Message）；
+- 通过对消息（Message）进行解封装就可以恢复出可处理数据。
+
+==RTMP并非一个单独协议，而是由多个相关协议组成的协议族。==
 
 - 1.RTMP，默认使用TCP端口1935的明文协议。
 
