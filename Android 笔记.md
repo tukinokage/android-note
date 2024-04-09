@@ -94,7 +94,7 @@ boot Rom(ROM中写死的程序)
 补充2
 	- idle进程，或者也称为swapper进程,0号进程。：
 	- 该进程是Linux中的第一个进程（线程），PID为0；
-	- idle进程是init进程和k thread d进程（叫 内核线程，用于控制内核相关）的父进程；
+	- idle进程是init进程和k thread d进程（叫 内核线程或者 守护进程daemon，用于控制内核相关）的父进程；
 
 
 - →(navite层) 启动 `init `进程（pid=1），执行Main.cpp ，挂载各种文件（ 用户空间在此初始化
@@ -224,9 +224,11 @@ https://www.cnblogs.com/tsingke/p/9007563.html
 ### 2.Content Provider
 在Android技术持久化技术中，**包含着文件存储，SharedPreferences存储以及SQLite，在这些持久化技术中保存到数据都只能在当前应用程序中访问**，那么如何将数据共享给其他程序呢？那就要说到contentprovider
 
-由于Android系统中，数据基本都是私有的，处于一个沙箱环境，都是存放于“data/data/程序包名”目录下，所以要实现数据共享contentprovider是正确操作。
+由于Android系统中，数据基本都是私有的，-也就是私有存储-，处于一个沙箱环境，都是存放于“data/data/程序包名”目录下，所以要实现数据共享contentprovider是正确操作。
 创建ContentProvider对外提供接口，其他应用通过ContentResolver和scheme uri访问对应的方法
 底层也是通过binder进行app进程间通信
+
+**需要注意的是：此处和android10-11的外部存储不是一个东西。android10-11的外部存储是通过MeadiaStore 或SAF（构建Intent然后调用startActivityForResult的方式）访问。**
 
 [content Provide](https://www.jianshu.com/p/5e13d1fec9c9)
 声明：
@@ -609,11 +611,11 @@ android数据类型所占字节数：
 
 - ### 6.0
 
-动态权限 ，引入了Doze机制和应用程序待机。当屏幕关闭且设备静止时, 打盹模式会限制应用程序的行为。应用程序待机将未使用的应用程序置于限制其网络访问、作业和同步的特殊状态。
+**动态权限** ，引入了**Doze机制**和应用程序待机。当屏幕关闭且设备静止时, 打盹模式会限制应用程序的行为。应用程序待机将未使用的应用程序置于限制其网络访问、作业和同步的特殊状态。
 
 - ### 7.0
 
-分屏 分享私有要使用fileprovider
+分屏 分享**私有要使用fileprovider**
 
 - ### 8.0
 - 多显示器
@@ -1041,8 +1043,12 @@ onCreate（saveInstanceState）  参数里-> 恢复
 
 锁屏 onPause()->onStop()
 
+**下图仔细看**
+
 ![[24b51461d53a4664a80927a9b523f67b.png]]
 
+
+![[截图20240409114017.png]]
 onSaveInstanceState()在生命周期结束前会调用该方法保存状态，当Activity非正常销毁之后，例如手机旋转，内存不足导致的后台自动销毁。
 我们可以将状态数据以key-value的形式放入到savedInstanceState中 
 
@@ -1058,7 +1064,7 @@ onSaveInstanceState()在生命周期结束前会调用该方法保存状态，�
 - onPause() 可见不可交互（部分可见），不能接收用户输入也不能执行代码，另一个半透明或者小的activity正挡在前面。被覆盖到下面或者锁屏时被调用 
 
 - onStop() 不可见不可交互失去焦点，activity完全被遮挡，不能被用户看到，activity被认为在background，当Stopped的时候，activity实例的状态信息被保留，但是不能执行任何代码。
-退出当前Activity或者跳转到新Activity时被调用 
+**退出当前Activity或者跳转到新Activity时被调用 .返回桌面等等**
 
 
 
@@ -1259,8 +1265,8 @@ private Activity performLaunchActivity(ActivityClientRecord r, Intent customInte
 }
 ```
 - 》==mInstrumentation.callActivityOnCreate==
-- 》==**setContentView解析  xml構建viewtree，==（mLayoutInflater.inflate（）解析xml结构， 解析的控件通过反射创建view ）**
 - 调用phonewindow==创建decoreview。==
+- 》==**setContentView解析  xml構建viewtree，==（mLayoutInflater.inflate（）解析xml结构， 解析的控件通过反射创建view ）**
 
 
 - 》  **ActivtiyThread.handlePerfromResume(), ==看下图可知调用onResume比addView早。==
@@ -1309,6 +1315,13 @@ ATMS是另一个系统服务，它负责管理应用程序的任务和界面。�
 
 AMS和ATMS之间有紧密的关系。==ATMS依赖于AMS来获取关于应用程序的信息，例如应用程序的名称、标识符和权限等==。同时，AMS也依赖于==ATMS来管理应用程序的界面和任务==。在Android系统中，AMS和ATMS共同协作，确保应用程序的正确执行和任务的顺畅切换。
 
+#### AMS对进程的描述
+
+Android 中AMS服务负责进程的创建和销毁，Android系统对用户屏蔽了进程的概念，用户在开发自己的应用的时候无需太关系进程相关的处理。
+
+进程在AMS中由一个 ProcessRecord 来表示，该对象记录了一个进程的所有信息，但是 ProcessRecord 在AMS服务中只是代表一个进程，真正的应用进程运行在独立的进程中，主线程是ActivityThread。ProcessRecord的变量IApplicationThread thread用来关联真正的进程，IApplicationThread是一个binder类，当他不为空的时候，thread持有了Binder的代理端，而服务端实现在ActivityThread中。
+ProcessRecord 
+![[13126588-ef6bbcdbba29ec38.webp]]
 ### PKMS/PackageManagerService
 要先注意的是PMS是指PowerMangerService，不是指PKMS。
 
@@ -1518,12 +1531,12 @@ public class MyService extends Service{
 (4)Service通常位于后台运行，它一般不需要与用户交互，因此Service组件没有图形用户界面。Service组件需要继承Service基类。Service组件通常用于为其他组件提供后台服务或监控其他组件的运行状态。
 
 **(5)onStartCommand方法返回有4种** 
-- START_STICKY （从Android 10（API级别29）开始，所有运行中的Service都会在==应用程序被系统杀死时停止==，而不会保持START_STICKY状态。）
+- START_STICKY （**从Android 10（API级别29**）开始，所有运行中的Service都会在==应用程序被系统杀死时停止==，而不会保持START_STICKY状态。）
 - START_NOT_STICKY 
 - START_REDELIVER_INTENT 
 - START_STICKY_COMPATIBILITY 
 
-**START_STICKY**：如果service进程被kill掉，保留service的状态为开始状态，但不保留递送的intent对象。随后系统会尝试重新创建service，由于服务状态为开始状态，所以创建服务后一定会调用onStartCommand(Intent,int,int)方法。如果在此期间没有任何启动命令被传递到service，那么参数Intent将为null。
+**START_STICKY**：如果service进程被kill掉，保留service的状态为开始状态，但不保留递送的intent对象。随后**系统会尝试重新创建service**，由于服务状态为开始状态，所以创建服务后一定会调用onStartCommand(Intent,int,int)方法。如果在此期间没有任何启动命令被传递到service，那么参数Intent将为null。
 
 **START_NOT_STICKY**：“非粘性的”。使用这个返回值时，如果在执行完onStartCommand后，服务被异常kill掉，系统不会自动重启该服务。
 
@@ -1878,7 +1891,7 @@ Framework层： 由**InpurServiceManager通过InputDispatcher分发到对应窗�
 | MotionEvent.ACTION_DOWN    | 屏幕按下     | 1                    |
 | MontionEvent.ACTION_MOVE   | 屏幕滑动     | 0或多次              |
 | MontionEvent.ACTION_UP     | 屏幕抬起     | 0或1                 |
-| MontionEvent.ACTION_CANCEL | 滑动超出边界 | 0或1                 |
+| MontionEvent.ACTION_CANCEL | 滑动超出边界/onPause/onStop | 0或1                 |
  |ACTION_POINTER_DOWN |双指及多指按下动作（仅在第二根手指或者大于第二根手指按下时有效） | 同ACTION_DOWN|
  |ACTION_POINTER_UP |双指及多指抬起动作（仅在第二根手指或者大于第二根的手指抬起时有效） | ACTION_UP|
 
@@ -2110,7 +2123,7 @@ try {
 ```
 -》viewrootImpl.perfromTraversal（）->内部还执行 relayoutWindow（）（window通过IWindowsSession通知wms创建surface）
 -》==performMeasure，performDraw，performlAYOUT==，调用==decordview的各个绘制过程*==*
-==并且該過程中執行了view.post的各種任務（post是在measure之后）和 TreeObserver 回調（三大perform之前）、dispatchAttachWidnow( 三大perform之前）==
+==并且該過程中執行了view.post的各種任務()和 TreeObserver 回調（三大perform之前）、dispatchAttachWidnow( 三大perform之前）==
 ![](繪製流程.webp)
 
 ![[截图20231017004246.png]]
@@ -2468,7 +2481,10 @@ int是32位的，其中高2位表示模式（Mode），低30位表示大小（Si
 
 知是 `dispatchAttachedToWindow` 的时候才会调用执行队列内的任务，就是
 `performTraversals`之后才会调用dispatchAttachedToWindow。
-**是在 View 绘制流程的开始阶段，通过mAttachInfo将所有任务重新发送到消息队列的尾部，此时相关任务的执行已经在 View 绘制任务之后，即 View 绘制流程已经结束，此时便可以正确获取到 View 的宽高了**。
+
+但是这里不久有一个疑问：在三大流程之前执行岂不是还是没法获取到宽高？请继续向下看
+
+**是在 View 绘制流程的开始阶段，执行executeActions，==通过mAttachInfo将所有任务重新发送到消息队列的尾部==，此时相关任务的执行已经在 View 绘制任务之后，即 View 绘制流程已经结束，此时便可以正确获取到 View 的宽高了**。
 
 getRunQueue().post(action)
 
@@ -2506,6 +2522,7 @@ void dispatchAttachedToWindow(AttachInfo info, int visibility) {
     }  
     // Transfer all pending runnables.  
     if (mRunQueue != null) {  
+    //此处\\\\\-**
         mRunQueue.executeActions(info.mHandler);  
         mRunQueue = null;  
     }  
@@ -2689,6 +2706,14 @@ Window 有三种类型，分别是==应用 Window==、==子 Window==和==系统 
 ==window主要用于管理decoview，与WindowManagerService通过AIDL IBinder --- windowSession==
 
 #### Dialog
+
+生命周期：
+- onCreate()，show()，onStart() ，cancel()，onDismiss()，Stop()
+
+是不是看着很眼熟，当在对话框创建onCreate()后（仅执行一次创建），show()方法用于展示对话框，随后调用onStart()，当点击back键或点击外部会执行cancel()，如果调用dialog.dismiss()方法会执行onDismiss，对话框消失最后会执行Stop()。
+
+  
+
 首先看看Dialog的构造方法
 ```java
 
@@ -3492,6 +3517,7 @@ chain.proceed中调用**RealInterceptorChain**的**proceed**方法，
 ## 拦截器
 拦截器要看源码的话主要是看 ==缓存拦截器== 和 ==链接拦截器==
 realcall中依靠getResponseWithInterceptorChain()方法返回response。
+每个拦截器详解：https://blog.csdn.net/m0_69650487/article/details/132112546
 
 ### getResponseWithInterceptorChain()源码
 
@@ -3966,6 +3992,14 @@ Kotlin Compiler Plugin** 在 kotlinc 过程中提供 hook 时机，可以再次�
 
 反序列化就是 将来要用到这些信息的时候 可以按照你保存时的逻辑 恢复成你保存之前的样子。
 
+详细一点来说Java需要序列化主要有以下几个原因：
+
+1. **持久化对象状态**：序列化可以将一个对象的状态转换为字节流，这样我们就可以将这些字节流写入文件或者通过网络发送到另一个运行Java虚拟机的计算机上。当需要恢复这个对象的状态时，可以通过反序列化从字节流中重新构造出这个对象。这种能力使得我们可以将对象的状态持久化到磁盘，或者在不同的JVM之间传递对象。
+2. **远程方法调用（RMI）**：在RMI中，方法调用和返回的对象需要通过网络传输。为了实现这一点，需要将对象序列化为字节流以在网络上传输，然后在接收端反序列化以恢复对象。
+3. **深拷贝**：序列化和反序列化过程可以视为对象的深拷贝过程。通过序列化一个对象，我们可以得到一个该对象完全独立的副本，包括其所有字段和嵌套对象。
+
+在android 中传递对象的时候就是深拷贝比较多，parcel效果会更好。
+
 ## Serializable
 
 空，反序列化还是用到了反射。具体的序列化 反序列化操作都是有jdk完成的。 性能较低。
@@ -4149,6 +4183,8 @@ parcel.h中部分代码， 其中data存了共享的对象首地址，position�
 
  `Serializable` 会使用反射，序列化和反序列化过程需要大量 I/O 操作， `Parcelable` 自已实现封送和解封（marshalled &unmarshalled）操作不需要用反射，数据也存放在 Native 内存中，效率要快很多
 
+**但是还是有区别的，如果是网络发送和本地持久化还是建议Serializable。adnroid间传递则是pacelable更加有利。**
+
  ## 
 
 # 15.图片裁剪和大图显示
@@ -4186,7 +4222,7 @@ BitmapRegionDecoder.newInstance(file, false)
 
 with（），load（），into（）。
 
-**with()**:添加activity或者context或者fragment，获取到requestMannager（管理请求）并创建一个fragment用于监听生命周期（通过lifecycle），以便及时回收资源，终止操作。
+**with()**:添加activity或者context或者fragment，获取到requestMannager（管理请求）并创建一个fragment用于监听生命周期（），以便及时回收资源，终止操作。
 初始化with()
 
 首先是Glide.with()方法，通过该方法主要是通过RequestManagerRetriever获取一个RequestManager对象。RequestManager是处理图片加载过程的具体实现类，后面详细讲述。
@@ -4198,6 +4234,8 @@ with（），load（），into（）。
 	若都没有自定义的module，则通过GliderBuilder的工厂模式，執行build生成实例。
 ```java
 Glide build(@NonNull Context context) {  
+
+/****线程池****/
     if (sourceExecutor == null) {  
       sourceExecutor = GlideExecutor.newSourceExecutor();  
     }  
@@ -4209,6 +4247,7 @@ Glide build(@NonNull Context context) {
     if (animationExecutor == null) {  
       animationExecutor = GlideExecutor.newAnimationExecutor();  
     }  
+  /********/
   
     if (memorySizeCalculator == null) {  
       memorySizeCalculator = new MemorySizeCalculator.Builder(context).build();  
@@ -4217,7 +4256,7 @@ Glide build(@NonNull Context context) {
     if (connectivityMonitorFactory == null) {  
       connectivityMonitorFactory = new DefaultConnectivityMonitorFactory();  
     }  
-  
+/*****LRU缓存池****/
     if (bitmapPool == null) {  
       int size = memorySizeCalculator.getBitmapPoolSize();  
       if (size > 0) {  
@@ -4280,9 +4319,9 @@ Glide build(@NonNull Context context) {
 
 ```
 
-- (4)Glide.getRequestManagerRetriever()
-- (5)RequestManagerRetriever.get()
-- RequestManagerRetriever.get
+	- (4)Glide.getRequestManagerRetriever()
+	- (5)RequestManagerRetriever.get()
+	- RequestManagerRetriever.get
 方法根据调用的context及是否主线程返回对应的RequestManager。
 	context为FragmentActivity时调用：
 ```java
@@ -4347,10 +4386,11 @@ public RequestManager get(@NonNull FragmentActivity activity) {
 ```
 	只监听了start，pause，destroy生命周期。
 
-- (6)with最后返回的是 RequestManager，
-- requestmanager 根据 load（传入的类型url，drawable，bitmap之类的）返回对应的  requestbuilder
-	- **load**（）：加载链接并返回DrawableRequestBuilder，大多数方法  都在这个建造者类中。主要是創建請求
+- (6)with最后返回的是 RequestManager。总结一下with就是传入要绑定绑定生命周期的对象，生成对应的不可见fragment监听该生命周期的回调。
+	- requestmanager 根据 ==load（传入的类型url，drawable，bitmap之类的）返回对应的  requestbuilder==
+- **load**（）：加载链接并返回DrawableRequestBuilder，大多数方法  都在这个建造者类中。主要是創建請求
 - requestbuilder.into 正常开始请求网络
+
 ```java
 //此處只看into（ImageView）方法
 public ViewTarget<ImageView, TranscodeType> into(@NonNull ImageView view) {
@@ -4385,9 +4425,12 @@ public ViewTarget<ImageView, TranscodeType> into(@NonNull ImageView view) {
         default:
           // Do nothing.
       }
+  
     //@1.核心！！加载图片
     return into(
+    
         //根据类型封装成对应的ViewTarget
+        
         //分为DrawableImageViewTarget、BitmapImageViewTarget
         //分别调用ImageView的setImageDrawable、setImageBitmap来实现图片加载显示
         glideContext.buildImageViewTarget(view, transcodeClass),
@@ -4401,7 +4444,7 @@ public ViewTarget<ImageView, TranscodeType> into(@NonNull ImageView view) {
 
 
 
-**into**（）中的所有操作：发起网络请求、缓存数据、解码并显示图片
+**into**（）中的所有操作：==根据view类型创建viewTarget。放到任务队列，发起网络请求、缓存数据、解码并显示图片==
 
 ```java
 private <Y extends Target《TranscodeType>> Y into(
@@ -4428,10 +4471,12 @@ private <Y extends Target《TranscodeType>> Y into(
       }
       return target;
     }
+    
     //如果是新请求，更新RequestTracker及TargetTracker
     requestManager.clear(target);
     target.setRequest(request);
-    //@2.发送加载请求
+    
+    //@2.发送加载请求, j
     requestManager.track(target, request);
 
     return target;
@@ -4450,7 +4495,7 @@ synchronized void track(@NonNull Target >?> target, @NonNull Request request) {
 	或者是直接觀察到了pause，就會從requser任務隊列中取出并且暫停，也是放到一個pending任務列表中等到觀察到 restart 再取出執行。
 
 
-- 核心2：圖片加載引擎engine，執行engine.load()，，經過**三級緩存**，創建engineJob和decodeJob放入到glide的綫程池開始獲取圖片和解碼圖片。
+- 核心2：**圖片加載引擎engine，執行engine.load()，，經過**三級緩存**，創建engineJob和decodeJob放入到glide的綫程池開始獲取圖片和解碼圖片**。
 
 大致流程：
 ①初始化各种**参数**，做好准备工作（**配置网络请求**、基于MVP的各种接口回调）
@@ -5113,6 +5158,7 @@ if (msg != null && msg.target == null) {
 
 
 #  19.ARoute和组件化
+支付宝组件化分析：https://zhuanlan.zhihu.com/p/580124667
 [[#52.插件化]]
 ![[v2-1e7d90a3f802a46d391f88f599006b47_b.webp]]
 
@@ -5398,7 +5444,7 @@ OkHttp请求网络可以分成三大步
 
 OKhttp会通过dispatch事件分发器将请求对象发送到RealCall 类，**将不同的请求放到不同的请求队列当中 同步的请求放置同步请求队列，异步请求放置异步请求队列，在走异步请求队列时会同时缓存一条记录到异步执行队列，最后通过dispatch分发器发送线程池中执行** ，我们**OkHttp所用的线程就是缓存线程池**
 
-**Ok的拦截器总共分为七个，在执行线程的时候就会走Interceptor。**
+**Ok的拦截器总共分为七个，在执行线程的时候就会走开始走Interceptor。** 可以自己了解一下自定义callAdapterFactory，内部自定义转化流程。
 
 **最后****生成一个响应体Body由通过被观察者发送一个**事件**(just)**  
 
@@ -5882,7 +5928,9 @@ public class MainActivity extends AppCompatActivity {
 
  ### ANR 监控方案
 1. ANR-WatchDog   [[#参考了ANR-WatchDog机制**]]
-2. Native层拦截Signal信号
+2. 自定义printer计算两次handler的时间差： ![[截图20240409003159.png]]
+	1. 那么如何区分类型呢？可以从通过message的what来查找类型，区分anr时间。（类型看ativityThread中的区分）
+3. Native层拦截Signal信号
 博客：[手把手教你高效监控ANR](https://blog.csdn.net/idaretobe/article/details/128257240) 
 
 
@@ -5947,7 +5995,8 @@ public View getView(int position, View convertView, ViewGroup parent) {
 recyclerview缓存详解：http://www.360doc.com/content/19/0712/11/36367108_848240455.shtml
 
 recycleview有四级缓存：
-//重用的其实是viewholder，但是实际viewholder里面也有itemview
+	1、重用的其实是viewholder，但是实际viewholder里面也有itemview
+	2、很大程度上优化的是findVIewById，当然还有原先创建view的时间。
 
 - mAttachedScrap(屏幕内)，用于屏幕内itemview快速重用，不需要重新createView和bindView
 
@@ -6026,7 +6075,7 @@ public class BaseApplication extends Application implements Thread.UncaughtExcep
 原文链接：https://blog.csdn.net/qq_30379689/article/details/53731646
 
 ## native异常捕获
-native通过在native层开启子线程，注册信号，等待捕获异常，当获取到对应信号时，输出信号对应的线程名到java层，有java层dump对应的线程栈。
+native通过在==native层开启子线程，注册信号，等待捕获异常，当获取到对应信号时，输出信号对应的线程名到java层，有java层dump对应的线程栈==。
 #### Native日志分析方式：
 
 将LogCat输出的Native崩溃日志，拷贝到crash.log（注意：最好以星号这行开始），并复制到build目录下的cmake编译后的so文件目录下，需要注意的是编译目录armeabi要和crash.log对应，cmake\debug\obj\arm-XXX目录下要有so文件,这个是编译的时候生成的。
@@ -6139,8 +6188,13 @@ dex文件结构, 与class的区别在与索引头区里，DEX文件直接是
 ![[20200724005012224.png]]
 ## odex文件结构
 
+完整解析文章：https://cloud.tencent.com/developer/article/2106274
+
+==odex是OptimizedDEX的缩写，表示经过优化的dex文件。存放在/data/dalvik-cache目录下==。由于Android程序的apk文件为zip压缩包格式，Dalvik虚拟机每次加载它们时需要从apk中读取classes.dex文件，这样会耗费很多cpu时间，而采用odex方式优化的dex文件，已经包含了加载dex必须的依赖库文件列表，Dalvik虚拟机只需检测并加载所需的依赖库即可执行相应的dex文件，这大大缩短了读取dex文件所需的时间。
+
 Odex文件的结构可以理解为dex文件的一个超集。它的结构如下图所示，odex文件在dex文件头部添加了一些数据，然后在dex文件尾部添加了dex文件的依赖库以及一些辅助数据。
 Dalvik虚拟机将dex文件映射到内存中后是Dalvik格式，在Android系统源码的dalvik/libdex/DexFile.h文件中它的定义如下。
+![[34c79151e4ab1ab3fae9665d5262fa2e.jpg]]
 
 DexFile结构中存入的多为其他结构的指针。DexFile最前面的DexOptHeader就是odex的头，DexLink以下的部分被成为auxillary section,即辅助数据段，它记录了dex文件被优化后添加的一些信息。然而，DexFile结构描述的是加载进内存的数据结构，还有一些数据是不会加载进内存的，经过分析，odex文件结构定义整理如下.
 
@@ -6159,7 +6213,7 @@ Android提供了一个专门验证与优化dex文件的工具dexopt。其源码�
 
 - dexopt 是对 dex 文件 进行 verification 和 optimization 的操作，其对 dex 文件的优化结果变成了 odex 文件，==这个文件和 dex 文件很像，只是使用了一些优化操作码（譬如优化调用虚拟指令等）。==
     
-- dex2oat 是对 dex 文件的== AOT 提前编译操作，其需要一个 dex 文件，然后对其进行编译，结果是一个本地可执行的 ELF 文件，可以直接被本地处理器执行==。
+- dex2oat 是对 dex 文件的== AOT 提前编译操作，其需要一个 dex 文件，然后对其进行编译，结果是一个本地可执行的 ELF (.oat)文件，可以直接被本地处理器执行==。
     
 
 除此之外在上图还可以看到 Dalvik 虚拟机中有使用 JIT 编译器，也就是说其也能将程序运行的热点 java 字节码编译成本地 code 执行，所以其与 Art 虚拟机还是有区别的。==Art 虚拟机的 dex2oat 是提前编译所有 dex 字节码==，而 Dalvik 虚拟机==只编译使用启发式检测中最频繁执行的热点字节码。==
@@ -6558,6 +6612,9 @@ Android 密钥库密钥使用两项安全措施来避免密钥材料被提取：
 # 38. 多语言/国际化
 
 ## 38.1 
+
+主要是还通过设置context中的Local的方式进行切换，<strong>updateLocales(LocaleList locales)</strong>
+local的参数还区别地区和语言类型，比如：zh-TW，zh-CN,才是完整的设置。
 
 语言切换的代码，在高版本中废弃了updateConfiguration方法，替代方法为createConfigurationContext。该方法返回一个context。
 
@@ -6960,9 +7017,9 @@ android类加载机制：Android的类加载和Java的类加载比较类似，�
 ![[e3a6234eb5a639f91db1e52ea5827aa0~tplv-t2oaga2asx-zoom-in-crop-mark 3024 0 0 0.webp]]
 
 
-==预检验问题是app安装时会存在dex opt操作变成odex文件==（优化dex的操作）
+==预检验问题会存在dex opt操作时变成odex文件的触发==（优化dex的操作）
 
-当==**某一个类所有的构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候**，这个类就会被打上**class_ispreverified**标签。==所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误。
+当==某一个类  **所有的**  构造方法、私有方法以及重载方法所引用的其他类和这个类本身都来自于同一个dex文件的时候，这个类就会被打上**class_ispreverified**标签。==所以如果加载的类来自于补丁文件，**而补丁文件和之前的文件必然不属于同一个dex**，而本身的那个类已经被打上了class_ispreverified标签，但是在运行时又引用了其他dex的类，这样就必然会出现错误。
 
 解决的思路是当这些类已经被编译完成之后，在**字节码的层面去注入一些来自于其他dex的类**,也就是**插桩**。[[#54. 字节码插桩]]
 
@@ -7268,6 +7325,8 @@ fun main() = runBlocking<Unit> {
 - 续体:   续体的换概念可以理解为挂起后，协程体中剩余要执行代码，笔者在文章中，将其看作为协程体类，在协程体类中封装了协程的要执行的操作，由状态机的状态将操作分割了成不同的片段，每一个状态对应不同代码片段的执行，可以与续体的概念对应。
 
 ### 挂起/恢复/调度的原理
+详细：https://blog.csdn.net/vivo_tech/article/details/126271211?utm_medium=distribute.pc_relevant.none-task-blog-2~default~baidujs_baidulandingword~default-0-126271211-blog-130408237.235^v43^pc_blog_bottom_relevance_base2&spm=1001.2101.3001.4242.1&utm_relevant_index=3
+
 Kotlin 协程的挂起和恢复由==编译器和协程库共同处理==。编译器将==挂起函数转换为状态机==，以便在运行时轻松地暂停和恢复；协程库负责在需要时恢复协程的执行。==这种设计使得协程可以无需阻塞底层线程并高效地进行异步编程。==
 
 协程不用跟线程一切换线程上下文，他的协程的数据是用户态上，不切换线程也就是不用内核态和用户态之间切换，只是在用户层面用==Dispatcher调度器模拟了线程的调度和异步效果==。
@@ -8670,8 +8729,16 @@ GLsurface
 		val a = this@MainActivity do(); 
 	}
  }
- 
+
  ```
+ 
+#### 3. 移除messagequeue信息
+ **延迟消息未取消**：如果在使用`postDelayed`后，Activity被销毁（例如，用户按下返回键退出Activity），但延迟的消息或Runnable仍然保留在消息队列中等待执行，那么即使Activity已经不再需要，它也会因为Handler的引用而无法被回收。
+
+为了避免这种情况，你可以采取以下措施：
+
+. **在Activity的`onDestroy`方法中取消延迟消息**：在Activity的`onDestroy`方法中，你可以调用`Handler`的`removeCallbacks`或`removeCallbacksAndMessages`方法来取消所有挂起的消息和Runnable。这可以确保在Activity销毁时，不再有任何与之关联的消息等待执行。
+
 #### 3.Native导致的泄露
 JNI引用的对象。
 #### 4.方法区中静态属性引用的对象
